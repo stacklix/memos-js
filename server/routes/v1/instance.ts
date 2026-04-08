@@ -104,8 +104,8 @@ export function createInstanceRoutes(deps: AppDeps) {
           additionalStyle: "",
           customProfile: { title: "", description: "", logoUrl: "" },
           weekStartDayOffset: 0,
-          disallowChangeUsername: false,
-          disallowChangeNickname: false,
+          disallowChangeUsername: general.disallowChangeUsername,
+          disallowChangeNickname: general.disallowChangeNickname,
         },
       });
     }
@@ -172,6 +172,8 @@ export function createInstanceRoutes(deps: AppDeps) {
         generalSetting?: {
           disallowUserRegistration?: boolean;
           disallowPasswordAuth?: boolean;
+          disallowChangeUsername?: boolean;
+          disallowChangeNickname?: boolean;
         };
         memoRelatedSetting?: {
           displayWithUpdateTime?: boolean;
@@ -224,6 +226,8 @@ export function createInstanceRoutes(deps: AppDeps) {
       await repo.upsertGeneralSetting({
         disallowUserRegistration: gs.disallowUserRegistration,
         disallowPasswordAuth: gs.disallowPasswordAuth,
+        disallowChangeUsername: gs.disallowChangeUsername,
+        disallowChangeNickname: gs.disallowChangeNickname,
       });
       const g = await repo.getGeneralSetting();
       return c.json({
@@ -235,8 +239,8 @@ export function createInstanceRoutes(deps: AppDeps) {
           additionalStyle: "",
           customProfile: { title: "", description: "", logoUrl: "" },
           weekStartDayOffset: 0,
-          disallowChangeUsername: false,
-          disallowChangeNickname: false,
+          disallowChangeUsername: g.disallowChangeUsername,
+          disallowChangeNickname: g.disallowChangeNickname,
         },
       });
     }

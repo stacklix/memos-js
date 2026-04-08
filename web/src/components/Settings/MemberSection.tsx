@@ -53,7 +53,7 @@ const MemberSection = () => {
     try {
       await userServiceClient.updateUser({
         user: {
-          name: archiveTarget.name,
+          ...archiveTarget,
           state: State.ARCHIVED,
         },
         updateMask: create(FieldMaskSchema, { paths: ["state"] }),
@@ -71,7 +71,7 @@ const MemberSection = () => {
     try {
       await userServiceClient.updateUser({
         user: {
-          name: user.name,
+          ...user,
           state: State.NORMAL,
         },
         updateMask: create(FieldMaskSchema, { paths: ["state"] }),

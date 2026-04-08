@@ -13,6 +13,8 @@ import { b64urlToUtf8, utf8ToB64url } from "../../lib/b64url.js";
 import { hashPassword } from "../../services/password.js";
 import { authPrincipalFromUserRow, userToJson } from "../../lib/serializers.js";
 import { userStatsFieldsFromMemoRows } from "../../lib/user-stats-from-memos.js";
+import { validateUserAvatarUrl } from "../../lib/user-avatar-data-uri.js";
+import { isValidMemosUsername } from "../../lib/user-username.js";
 
 /** Proto `User.Role`: ROLE_UNSPECIFIED=0, ADMIN=2, USER=3 — JSON often uses these numbers. */
 const createUserRoleField = z
@@ -45,6 +47,18 @@ const createUserBody = z.object({
   userId: z.string().optional(),
   validateOnly: z.boolean().optional(),
 });
+
+function parseUserRolePatchValue(v: unknown): "ADMIN" | "USER" | null {
+  if (v === "ADMIN" || v === 2) return "ADMIN";
+  if (v === "USER" || v === 3) return "USER";
+  return null;
+}
+
+function parseUserStatePatchValue(v: unknown): "NORMAL" | "ARCHIVED" | null {
+  if (v === "NORMAL" || v === 1) return "NORMAL";
+  if (v === "ARCHIVED" || v === 2) return "ARCHIVED";
+  return null;
+}
 
 function parsePageArgs(
   rawPageSize: string | undefined,
@@ -185,8 +199,8 @@ export function createUserRoutes(deps: AppDeps) {
       return jsonError(c, GrpcCode.PERMISSION_DENIED, "registration disabled");
     }
     const username = body.userId?.trim() || body.user.username;
-    if (!username || !/^[a-z0-9-]+$/i.test(username)) {
-      return jsonError(c, GrpcCode.INVALID_ARGUMENT, "invalid username");
+    if (!username || !isValidMemosUsername(username)) {
+      return jsonError(c, GrpcCode.INVALID_ARGUMENT, `invalid username: ${username}`);
     }
     if (await repo.getUser(username)) {
       return jsonError(c, GrpcCode.ALREADY_EXISTS, "user exists");
@@ -284,12 +298,17 @@ export function createUserRoutes(deps: AppDeps) {
     if (auth.username !== username && auth.role !== "ADMIN") {
       return jsonError(c, GrpcCode.PERMISSION_DENIED, "permission denied");
     }
+    const general = await repo.getGeneralSetting();
     type Body = {
       user?: {
+        username?: string;
         displayName?: string;
         email?: string;
         password?: string;
-        role?: string;
+        role?: string | number;
+        state?: string | number;
+        avatarUrl?: string;
+        description?: string;
       };
       updateMask?: { paths?: string[] };
     };
@@ -305,21 +324,83 @@ export function createUserRoutes(deps: AppDeps) {
     if (paths.length === 0) {
       return jsonError(c, GrpcCode.INVALID_ARGUMENT, "update mask is empty");
     }
+    let newUsername: string | null = null;
+    if (hasPath(paths, "username")) {
+      if (general.disallowChangeUsername) {
+        return jsonError(c, GrpcCode.PERMISSION_DENIED, "permission denied");
+      }
+      const next = typeof u.username === "string" ? u.username.trim() : "";
+      if (!next) {
+        return jsonError(c, GrpcCode.INVALID_ARGUMENT, "username required");
+      }
+      if (!isValidMemosUsername(next)) {
+        return jsonError(c, GrpcCode.INVALID_ARGUMENT, `invalid username: ${next}`);
+      }
+      if (next !== username) {
+        newUsername = next;
+      }
+    }
+
     const fields: Parameters<typeof repo.updateUser>[1] = {};
     if (hasPath(paths, "displayName", "display_name")) {
+      if (general.disallowChangeNickname) {
+        return jsonError(c, GrpcCode.PERMISSION_DENIED, "permission denied");
+      }
       if (u.displayName !== undefined) fields.display_name = u.displayName;
     }
     if (hasPath(paths, "email")) {
       if (u.email !== undefined) fields.email = u.email;
     }
+    if (hasPath(paths, "avatar_url", "avatarUrl")) {
+      if (u.avatarUrl !== undefined) {
+        const avatarErr = validateUserAvatarUrl(u.avatarUrl);
+        if (avatarErr) {
+          const msg =
+            avatarErr === "invalid data URI format"
+              ? `invalid avatar format: ${avatarErr}`
+              : avatarErr;
+          return jsonError(c, GrpcCode.INVALID_ARGUMENT, msg);
+        }
+        fields.avatar_url = u.avatarUrl;
+      }
+    }
+    if (hasPath(paths, "description")) {
+      if (u.description !== undefined) fields.description = u.description;
+    }
     if (u.password && hasPath(paths, "password")) {
       fields.password_hash = await hashPassword(u.password);
     }
-    if (u.role && auth.role === "ADMIN" && hasPath(paths, "role")) {
-      fields.role = u.role === "ADMIN" ? "ADMIN" : "USER";
+    if (hasPath(paths, "role")) {
+      if (auth.role !== "ADMIN") {
+        return jsonError(c, GrpcCode.PERMISSION_DENIED, "permission denied");
+      }
+      const parsedRole = parseUserRolePatchValue(u.role);
+      if (!parsedRole) {
+        return jsonError(c, GrpcCode.INVALID_ARGUMENT, "invalid role");
+      }
+      fields.role = parsedRole;
+    }
+    if (hasPath(paths, "state")) {
+      const parsedState = parseUserStatePatchValue(u.state);
+      if (!parsedState) {
+        return jsonError(c, GrpcCode.INVALID_ARGUMENT, "invalid state");
+      }
+      fields.state = parsedState;
     }
     await repo.updateUser(username, fields);
-    const next = await repo.getUser(username);
+    let resolvedUsername = username;
+    if (newUsername) {
+      try {
+        await repo.renameUser(username, newUsername);
+        resolvedUsername = newUsername;
+      } catch (e) {
+        if (e instanceof Error && e.message === "username already exists") {
+          return jsonError(c, GrpcCode.ALREADY_EXISTS, "username already exists");
+        }
+        throw e;
+      }
+    }
+    const next = await repo.getUserAnyState(resolvedUsername);
     if (!next) return jsonError(c, GrpcCode.NOT_FOUND, "user not found");
     return c.json(userToJson(next, auth));
   });

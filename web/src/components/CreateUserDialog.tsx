@@ -55,7 +55,7 @@ function CreateUserDialog({ open, onOpenChange, user: initialUser, onSuccess }: 
         await userServiceClient.createUser({ user });
         toast.success("Create user successfully");
       } else {
-        const updateMask = [];
+        const updateMask: string[] = [];
         if (user.username !== initialUser?.username) {
           updateMask.push("username");
         }
@@ -64,6 +64,12 @@ function CreateUserDialog({ open, onOpenChange, user: initialUser, onSuccess }: 
         }
         if (user.role !== initialUser?.role) {
           updateMask.push("role");
+        }
+        if (updateMask.length === 0) {
+          toast("No changes to update");
+          requestState.setFinish();
+          onOpenChange(false);
+          return;
         }
         const userToUpdate = create(UserSchema, { ...user, name: initialUser?.name ?? user.name });
         await userServiceClient.updateUser({ user: userToUpdate, updateMask: create(FieldMaskSchema, { paths: updateMask }) });

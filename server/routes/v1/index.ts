@@ -32,10 +32,13 @@ export function createV1App(deps: AppDeps) {
       if (jwtSecret) {
         const access = await verifyAccessToken(token, jwtSecret);
         if (access) {
-          let username = access.username;
-          if (!username && access.userId != null) {
+          let username: string | null = null;
+          if (access.userId != null) {
             const u = await repo.getUserByInternalId(access.userId);
             username = u?.username ?? null;
+          }
+          if (!username && access.username) {
+            username = access.username;
           }
           if (!username) {
             await next();

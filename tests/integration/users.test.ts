@@ -76,6 +76,145 @@ describe("integration: users", () => {
     expect((get.body as { displayName: string }).displayName).toBe("New Name");
   });
 
+  it("admin PATCH state archives and restores user with numeric enum values", async () => {
+    const app = createTestApp();
+    const { accessToken } = await seedAdmin(app, { username: "admstate", password: "secret123" });
+    const created = await postUserAsAdmin(app, accessToken, {
+      username: "selfstate",
+      password: "secret123",
+      role: "USER",
+    });
+    expect(created.status).toBe(200);
+
+    const archive = await apiJson(app, "/api/v1/users/selfstate", {
+      method: "PATCH",
+      bearer: accessToken,
+      json: {
+        user: { state: 2 },
+        updateMask: { paths: ["state"] },
+      },
+    });
+    expect(archive.status).toBe(200);
+    expect((archive.body as { state: string }).state).toBe("ARCHIVED");
+
+    const restore = await apiJson(app, "/api/v1/users/selfstate", {
+      method: "PATCH",
+      bearer: accessToken,
+      json: {
+        user: { state: 1 },
+        updateMask: { paths: ["state"] },
+      },
+    });
+    expect(restore.status).toBe(200);
+    expect((restore.body as { state: string }).state).toBe("NORMAL");
+  });
+
+  it("admin PATCH role accepts numeric enum value", async () => {
+    const app = createTestApp();
+    const { accessToken } = await seedAdmin(app, { username: "admrole", password: "secret123" });
+    const created = await postUserAsAdmin(app, accessToken, {
+      username: "u-role",
+      password: "secret123",
+      role: "USER",
+    });
+    expect(created.status).toBe(200);
+
+    const patch = await apiJson(app, "/api/v1/users/u-role", {
+      method: "PATCH",
+      bearer: accessToken,
+      json: {
+        user: { role: 2 },
+        updateMask: { paths: ["role"] },
+      },
+    });
+    expect(patch.status).toBe(200);
+    expect((patch.body as { role: string }).role).toBe("ADMIN");
+  });
+
+  it("non-admin cannot PATCH another user's role", async () => {
+    const app = createTestApp();
+    const { accessToken } = await seedAdmin(app, { username: "admperm", password: "secret123" });
+    const userA = await postUserAsAdmin(app, accessToken, {
+      username: "ua",
+      password: "secret123",
+      role: "USER",
+    });
+    expect(userA.status).toBe(200);
+    const userB = await postUserAsAdmin(app, accessToken, {
+      username: "ub",
+      password: "secret123",
+      role: "USER",
+    });
+    expect(userB.status).toBe(200);
+    const { accessToken: ubToken } = await signIn(app, "ub", "secret123");
+
+    const patch = await apiJson<{ code: number }>(app, "/api/v1/users/ua", {
+      method: "PATCH",
+      bearer: ubToken,
+      json: {
+        user: { role: 2 },
+        updateMask: { paths: ["role"] },
+      },
+    });
+    expect(patch.status).toBe(403);
+    expect(patch.body.code).toBe(7);
+  });
+
+  it("returns INVALID_ARGUMENT for invalid role/state patch values", async () => {
+    const app = createTestApp();
+    const { accessToken } = await seedAdmin(app, { username: "adminvalid", password: "secret123" });
+    const created = await postUserAsAdmin(app, accessToken, {
+      username: "u-invalid",
+      password: "secret123",
+      role: "USER",
+    });
+    expect(created.status).toBe(200);
+
+    const badRole = await apiJson<{ code: number }>(app, "/api/v1/users/u-invalid", {
+      method: "PATCH",
+      bearer: accessToken,
+      json: {
+        user: { role: 9 },
+        updateMask: { paths: ["role"] },
+      },
+    });
+    expect(badRole.status).toBe(400);
+    expect(badRole.body.code).toBe(3);
+
+    const badState = await apiJson<{ code: number }>(app, "/api/v1/users/u-invalid", {
+      method: "PATCH",
+      bearer: accessToken,
+      json: {
+        user: { state: 9 },
+        updateMask: { paths: ["state"] },
+      },
+    });
+    expect(badState.status).toBe(400);
+    expect(badState.body.code).toBe(3);
+  });
+
+  it("user PATCH username persists and GET works with new resource path", async () => {
+    const app = createTestApp();
+    await postFirstUser(app, { username: "oldname", password: "secret123", role: "USER" });
+    const { accessToken } = await signIn(app, "oldname", "secret123");
+
+    const patch = await apiJson(app, "/api/v1/users/oldname", {
+      method: "PATCH",
+      bearer: accessToken,
+      json: {
+        user: { username: "newname" },
+        updateMask: { paths: ["username"] },
+      },
+    });
+    expect(patch.status).toBe(200);
+    expect((patch.body as { username: string; name: string }).username).toBe("newname");
+    expect((patch.body as { name: string }).name).toBe("users/newname");
+
+    const get = await apiJson(app, "/api/v1/users/newname", { bearer: accessToken });
+    expect(get.status).toBe(200);
+    expect((get.body as { username: string }).username).toBe("newname");
+  });
+
   it(":getStats and GET /users:stats agree after memos with tags", async () => {
     const app = createTestApp();
     await postFirstUser(app, { username: "tagger", password: "secret123", role: "USER" });

@@ -30,6 +30,8 @@ import {
 const DEFAULT_GENERAL = {
   disallowUserRegistration: false,
   disallowPasswordAuth: false,
+  disallowChangeUsername: false,
+  disallowChangeNickname: false,
 };
 
 /** Same string as golang `store.MemoRelationComment`. */
@@ -370,6 +372,12 @@ export function createRepository(sql: SqlAdapter) {
           disallowPasswordAuth: Boolean(
             parsed.disallowPasswordAuth ?? parsed.disallow_password_auth,
           ),
+          disallowChangeUsername: Boolean(
+            parsed.disallowChangeUsername ?? parsed.disallow_change_username,
+          ),
+          disallowChangeNickname: Boolean(
+            parsed.disallowChangeNickname ?? parsed.disallow_change_nickname,
+          ),
         };
       } catch {
         return { ...DEFAULT_GENERAL };
@@ -384,6 +392,12 @@ export function createRepository(sql: SqlAdapter) {
       }
       if (patch.disallowPasswordAuth !== undefined) {
         next.disallowPasswordAuth = patch.disallowPasswordAuth;
+      }
+      if (patch.disallowChangeUsername !== undefined) {
+        next.disallowChangeUsername = patch.disallowChangeUsername;
+      }
+      if (patch.disallowChangeNickname !== undefined) {
+        next.disallowChangeNickname = patch.disallowChangeNickname;
       }
       await sql.execute(
         `INSERT INTO system_setting (name, value, description) VALUES ('GENERAL', ?, '')
@@ -436,6 +450,14 @@ export function createRepository(sql: SqlAdapter) {
     async getUser(username: string): Promise<DbUserRow | null> {
       const r = await sql.queryOne<SqlUserRow>(
         "SELECT * FROM user WHERE username = ? AND row_status = 'NORMAL'",
+        [username],
+      );
+      return r ? mapUserRow(r) : null;
+    },
+
+    async getUserAnyState(username: string): Promise<DbUserRow | null> {
+      const r = await sql.queryOne<SqlUserRow>(
+        "SELECT * FROM user WHERE username = ?",
         [username],
       );
       return r ? mapUserRow(r) : null;
@@ -534,8 +556,23 @@ export function createRepository(sql: SqlAdapter) {
       vals.push(username);
       if (sets.length === 1) return;
       await sql.execute(
-        `UPDATE user SET ${sets.join(", ")} WHERE username = ? AND row_status = 'NORMAL'`,
+        `UPDATE user SET ${sets.join(", ")} WHERE username = ?`,
         vals,
+      );
+    },
+
+    /** Rename login username (unique). Caller validates format and permissions. */
+    async renameUser(fromUsername: string, toUsername: string): Promise<void> {
+      const clash = await sql.queryOne<{ id: number }>(
+        "SELECT id FROM user WHERE username = ?",
+        [toUsername],
+      );
+      if (clash) {
+        throw new Error("username already exists");
+      }
+      await sql.execute(
+        "UPDATE user SET username = ?, updated_ts = strftime('%s', 'now') WHERE username = ?",
+        [toUsername, fromUsername],
       );
     },
 

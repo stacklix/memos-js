@@ -5,7 +5,8 @@ import { AttachmentSchema } from "@/types/proto/api/v1/attachment_service_pb";
 import type { Memo } from "@/types/proto/api/v1/memo_service_pb";
 import { LocationSchema, MemoSchema, Visibility } from "@/types/proto/api/v1/memo_service_pb";
 import type { User } from "@/types/proto/api/v1/user_service_pb";
-import { UserSchema, User_Role } from "@/types/proto/api/v1/user_service_pb";
+import type { UserStats } from "@/types/proto/api/v1/user_service_pb";
+import { UserSchema, UserStatsSchema, User_Role } from "@/types/proto/api/v1/user_service_pb";
 
 /** REST JSON uses enum names as strings; protobuf-es expects numeric enums. */
 function stateFromApiJson(s: unknown): State {
@@ -105,5 +106,40 @@ export function userFromJson(j: Record<string, unknown>): User {
     state: stateFromApiJson(j.state),
     createTime: ts(j.createTime as string),
     updateTime: ts(j.updateTime as string),
+  } as Record<string, unknown>);
+}
+
+export function userStatsFromJson(j: Record<string, unknown>): UserStats {
+  const rawMemoDisplayTimestamps = Array.isArray(j.memoDisplayTimestamps) ? j.memoDisplayTimestamps : [];
+  const memoDisplayTimestamps = rawMemoDisplayTimestamps
+    .map((rawTs) => (typeof rawTs === "string" ? ts(rawTs) : undefined))
+    .filter((x): x is NonNullable<ReturnType<typeof ts>> => x !== undefined);
+
+  const memoTypeStatsRaw = j.memoTypeStats;
+  const memoTypeStats =
+    memoTypeStatsRaw && typeof memoTypeStatsRaw === "object"
+      ? {
+          linkCount: Number((memoTypeStatsRaw as Record<string, unknown>).linkCount ?? 0),
+          codeCount: Number((memoTypeStatsRaw as Record<string, unknown>).codeCount ?? 0),
+          todoCount: Number((memoTypeStatsRaw as Record<string, unknown>).todoCount ?? 0),
+          undoCount: Number((memoTypeStatsRaw as Record<string, unknown>).undoCount ?? 0),
+        }
+      : undefined;
+
+  const tagCountRaw = j.tagCount;
+  const tagCount: Record<string, number> = {};
+  if (tagCountRaw && typeof tagCountRaw === "object") {
+    for (const [k, v] of Object.entries(tagCountRaw as Record<string, unknown>)) {
+      tagCount[k] = Number(v ?? 0);
+    }
+  }
+
+  return create(UserStatsSchema, {
+    name: String(j.name ?? ""),
+    memoDisplayTimestamps,
+    memoTypeStats,
+    tagCount,
+    pinnedMemos: Array.isArray(j.pinnedMemos) ? j.pinnedMemos.map((x) => String(x)) : [],
+    totalMemoCount: Number(j.totalMemoCount ?? 0),
   } as Record<string, unknown>);
 }
