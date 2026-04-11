@@ -27,19 +27,43 @@ import {
   USER_SETTING_KEY_SHORTCUTS,
 } from "../lib/user-setting-auth-shortcuts.js";
 
+const DEFAULT_CUSTOM_PROFILE = {
+  title: "",
+  description: "",
+  logoUrl: "",
+};
+
 const DEFAULT_GENERAL = {
   disallowUserRegistration: false,
   disallowPasswordAuth: false,
+  additionalScript: "",
+  additionalStyle: "",
+  customProfile: { ...DEFAULT_CUSTOM_PROFILE },
+  weekStartDayOffset: 0,
   disallowChangeUsername: false,
   disallowChangeNickname: false,
 };
 
-/** Same string as golang `store.MemoRelationComment`. */
-const MEMO_RELATION_COMMENT = "COMMENT";
+function parseStringField(raw: Record<string, unknown>, key: string, snakeKey: string): string {
+  const v = raw[key] ?? raw[snakeKey];
+  return typeof v === "string" ? v : "";
+}
+
+function parseCustomProfile(raw: Record<string, unknown>): typeof DEFAULT_CUSTOM_PROFILE {
+  const cp = (raw.customProfile ?? raw.custom_profile) as Record<string, unknown> | undefined;
+  return {
+    title: parseStringField(cp ?? {}, "title", "title"),
+    description: parseStringField(cp ?? {}, "description", "description"),
+    logoUrl: parseStringField(cp ?? {}, "logoUrl", "logo_url"),
+  };
+}
 
 function isoToUnixSec(iso: string): number {
   return Math.floor(new Date(iso).getTime() / 1000);
 }
+
+/** Same string as golang `store.MemoRelationComment`. */
+const MEMO_RELATION_COMMENT = "COMMENT";
 
 function unixSecToIso(sec: number | bigint): string {
   const n = typeof sec === "bigint" ? Number(sec) : sec;
@@ -362,9 +386,10 @@ export function createRepository(sql: SqlAdapter) {
       const row = await sql.queryOne<{ value: string }>(
         "SELECT value FROM system_setting WHERE name = 'GENERAL'",
       );
-      if (!row) return { ...DEFAULT_GENERAL };
+      if (!row) return { ...DEFAULT_GENERAL, customProfile: { ...DEFAULT_CUSTOM_PROFILE } };
       try {
         const parsed = JSON.parse(row.value) as Record<string, unknown>;
+        const weekOffset = parsed.weekStartDayOffset ?? parsed.week_start_day_offset;
         return {
           disallowUserRegistration: Boolean(
             parsed.disallowUserRegistration ?? parsed.disallow_user_registration,
@@ -372,6 +397,10 @@ export function createRepository(sql: SqlAdapter) {
           disallowPasswordAuth: Boolean(
             parsed.disallowPasswordAuth ?? parsed.disallow_password_auth,
           ),
+          additionalScript: parseStringField(parsed, "additionalScript", "additional_script"),
+          additionalStyle: parseStringField(parsed, "additionalStyle", "additional_style"),
+          customProfile: parseCustomProfile(parsed),
+          weekStartDayOffset: typeof weekOffset === "number" ? weekOffset : 0,
           disallowChangeUsername: Boolean(
             parsed.disallowChangeUsername ?? parsed.disallow_change_username,
           ),
@@ -380,7 +409,7 @@ export function createRepository(sql: SqlAdapter) {
           ),
         };
       } catch {
-        return { ...DEFAULT_GENERAL };
+        return { ...DEFAULT_GENERAL, customProfile: { ...DEFAULT_CUSTOM_PROFILE } };
       }
     },
 
@@ -392,6 +421,22 @@ export function createRepository(sql: SqlAdapter) {
       }
       if (patch.disallowPasswordAuth !== undefined) {
         next.disallowPasswordAuth = patch.disallowPasswordAuth;
+      }
+      if (patch.additionalScript !== undefined) {
+        next.additionalScript = patch.additionalScript;
+      }
+      if (patch.additionalStyle !== undefined) {
+        next.additionalStyle = patch.additionalStyle;
+      }
+      if (patch.customProfile !== undefined) {
+        next.customProfile = {
+          title: typeof patch.customProfile.title === "string" ? patch.customProfile.title : cur.customProfile.title,
+          description: typeof patch.customProfile.description === "string" ? patch.customProfile.description : cur.customProfile.description,
+          logoUrl: typeof patch.customProfile.logoUrl === "string" ? patch.customProfile.logoUrl : cur.customProfile.logoUrl,
+        };
+      }
+      if (typeof patch.weekStartDayOffset === "number") {
+        next.weekStartDayOffset = patch.weekStartDayOffset;
       }
       if (patch.disallowChangeUsername !== undefined) {
         next.disallowChangeUsername = patch.disallowChangeUsername;

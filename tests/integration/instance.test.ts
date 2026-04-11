@@ -55,6 +55,83 @@ describe("integration: instance", () => {
     ).toBe(true);
   });
 
+  it("PATCH GENERAL additionalScript/additionalStyle then GET returns persisted values", async () => {
+    const app = createTestApp();
+    const { accessToken } = await seedAdmin(app, { username: "igas", password: "secret123" });
+
+    const patch = await apiJson(app, "/api/v1/instance/settings/GENERAL", {
+      method: "PATCH",
+      bearer: accessToken,
+      json: {
+        setting: {
+          generalSetting: {
+            additionalScript: "console.log('hello')",
+            additionalStyle: "body { color: red; }",
+          },
+        },
+      },
+    });
+    expect(patch.status).toBe(200);
+    type GSBody = { generalSetting: { additionalScript: string; additionalStyle: string } };
+    expect((patch.body as GSBody).generalSetting.additionalScript).toBe("console.log('hello')");
+    expect((patch.body as GSBody).generalSetting.additionalStyle).toBe("body { color: red; }");
+
+    const get = await apiJson(app, "/api/v1/instance/settings/GENERAL");
+    expect(get.status).toBe(200);
+    expect((get.body as GSBody).generalSetting.additionalScript).toBe("console.log('hello')");
+    expect((get.body as GSBody).generalSetting.additionalStyle).toBe("body { color: red; }");
+  });
+
+  it("PATCH GENERAL customProfile then GET returns persisted profile", async () => {
+    const app = createTestApp();
+    const { accessToken } = await seedAdmin(app, { username: "igcp", password: "secret123" });
+
+    const patch = await apiJson(app, "/api/v1/instance/settings/GENERAL", {
+      method: "PATCH",
+      bearer: accessToken,
+      json: {
+        setting: {
+          generalSetting: {
+            customProfile: { title: "My Memos", description: "A personal memo app", logoUrl: "/logo.png" },
+          },
+        },
+      },
+    });
+    expect(patch.status).toBe(200);
+    type CPBody = { generalSetting: { customProfile: { title: string; description: string; logoUrl: string } } };
+    expect((patch.body as CPBody).generalSetting.customProfile.title).toBe("My Memos");
+    expect((patch.body as CPBody).generalSetting.customProfile.description).toBe("A personal memo app");
+    expect((patch.body as CPBody).generalSetting.customProfile.logoUrl).toBe("/logo.png");
+
+    const get = await apiJson(app, "/api/v1/instance/settings/GENERAL");
+    expect(get.status).toBe(200);
+    expect((get.body as CPBody).generalSetting.customProfile.title).toBe("My Memos");
+  });
+
+  it("PATCH GENERAL weekStartDayOffset then GET returns persisted offset", async () => {
+    const app = createTestApp();
+    const { accessToken } = await seedAdmin(app, { username: "igwd", password: "secret123" });
+
+    const patch = await apiJson(app, "/api/v1/instance/settings/GENERAL", {
+      method: "PATCH",
+      bearer: accessToken,
+      json: {
+        setting: {
+          generalSetting: {
+            weekStartDayOffset: 1,
+          },
+        },
+      },
+    });
+    expect(patch.status).toBe(200);
+    type WBody = { generalSetting: { weekStartDayOffset: number } };
+    expect((patch.body as WBody).generalSetting.weekStartDayOffset).toBe(1);
+
+    const get = await apiJson(app, "/api/v1/instance/settings/GENERAL");
+    expect(get.status).toBe(200);
+    expect((get.body as WBody).generalSetting.weekStartDayOffset).toBe(1);
+  });
+
   it("PATCH MEMO_RELATED with empty reactions then GET round-trip", async () => {
     const app = createTestApp();
     const { accessToken } = await seedAdmin(app, { username: "im", password: "secret123" });

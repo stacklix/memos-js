@@ -12,6 +12,13 @@
 | Memo 详情与附件相关能力 | 附件过滤语法为子集实现，尚未完整覆盖 CEL 语义 |
 | 实时刷新（SSE） | 前端有实时预期，但后端缺少 `/api/v1/sse` |
 
+### 1.1 已新增组件（与 `golang` 对齐）
+
+| 组件 | 说明 |
+| --- | --- |
+| `web/src/components/MemoAttachment.tsx` | 单条附件展示组件（音频内联播放，其他文件显示图标+文件名）；与 `golang` 同名组件保持一致 |
+| `web/src/components/MemoResource.tsx` | 组合 `MemoAttachment`，将 Memo 的附件列表平铺渲染 |
+
 ---
 
 ## 2) 后端结构差异（`server/routes/v1` 对照 `golang`）
@@ -30,6 +37,12 @@
 | Memo 查询过滤 | `server/lib/memo-filter.ts` 为子集实现，复杂 CEL 表达式不完全兼容 |
 | Attachment 存储 | 附件 `filter` 尚未完整覆盖 CEL 编译语义；EXIF 去除当前仅覆盖 JPEG |
 | Instance 存储设置 | 当前 `GET /instance/settings/STORAGE` 额外返回 `supportedStorageTypes` 并按运行时动态裁剪可选项，且支持 `R2`；`golang` 为固定 enum（`DATABASE/LOCAL/S3`）且无该动态字段 |
+
+### 2.3 已修复差异
+
+| 模块 | 修复内容 |
+| --- | --- |
+| GENERAL 设置 | `additionalScript`、`additionalStyle`、`customProfile`、`weekStartDayOffset` 现已正确持久化，并在 `GET` 和 `PATCH /api/v1/instance/settings/GENERAL` 中返回实际存储值 |
 
 ---
 
@@ -59,3 +72,12 @@
 | 对象存储链路 | `golang` 以 S3 链路为主；当前分支为 `DB/LOCAL/S3/R2`，跨后端行为（特别是 filter 与图像处理覆盖）仍有待补充验证 |
 | 实时通道 | `golang` 有 SSE；当前分支缺失 SSE 路由 |
 | MCP 对外接口 | `golang` 有 `mcp/*`；当前分支无等价接口 |
+
+---
+
+## 5) CI / 质量门禁
+
+| 项目 | 说明 |
+| --- | --- |
+| GitHub Actions CI | `.github/workflows/ci.yml` 在每次推送及 PR 到 `master` 时执行类型检查、测试，并将覆盖率上报至 Codecov |
+| 分支保护 | 合并到 `master` 须 CI 通过 |

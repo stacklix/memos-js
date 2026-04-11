@@ -100,10 +100,10 @@ export function createInstanceRoutes(deps: AppDeps) {
         generalSetting: {
           disallowUserRegistration: general.disallowUserRegistration,
           disallowPasswordAuth: general.disallowPasswordAuth,
-          additionalScript: "",
-          additionalStyle: "",
-          customProfile: { title: "", description: "", logoUrl: "" },
-          weekStartDayOffset: 0,
+          additionalScript: general.additionalScript,
+          additionalStyle: general.additionalStyle,
+          customProfile: general.customProfile,
+          weekStartDayOffset: general.weekStartDayOffset,
           disallowChangeUsername: general.disallowChangeUsername,
           disallowChangeNickname: general.disallowChangeNickname,
         },
@@ -172,6 +172,14 @@ export function createInstanceRoutes(deps: AppDeps) {
         generalSetting?: {
           disallowUserRegistration?: boolean;
           disallowPasswordAuth?: boolean;
+          additionalScript?: string;
+          additionalStyle?: string;
+          customProfile?: {
+            title?: string;
+            description?: string;
+            logoUrl?: string;
+          };
+          weekStartDayOffset?: number;
           disallowChangeUsername?: boolean;
           disallowChangeNickname?: boolean;
         };
@@ -226,6 +234,10 @@ export function createInstanceRoutes(deps: AppDeps) {
       await repo.upsertGeneralSetting({
         disallowUserRegistration: gs.disallowUserRegistration,
         disallowPasswordAuth: gs.disallowPasswordAuth,
+        additionalScript: gs.additionalScript,
+        additionalStyle: gs.additionalStyle,
+        customProfile: gs.customProfile as { title: string; description: string; logoUrl: string } | undefined,
+        weekStartDayOffset: gs.weekStartDayOffset,
         disallowChangeUsername: gs.disallowChangeUsername,
         disallowChangeNickname: gs.disallowChangeNickname,
       });
@@ -235,10 +247,10 @@ export function createInstanceRoutes(deps: AppDeps) {
         generalSetting: {
           disallowUserRegistration: g.disallowUserRegistration,
           disallowPasswordAuth: g.disallowPasswordAuth,
-          additionalScript: "",
-          additionalStyle: "",
-          customProfile: { title: "", description: "", logoUrl: "" },
-          weekStartDayOffset: 0,
+          additionalScript: g.additionalScript,
+          additionalStyle: g.additionalStyle,
+          customProfile: g.customProfile,
+          weekStartDayOffset: g.weekStartDayOffset,
           disallowChangeUsername: g.disallowChangeUsername,
           disallowChangeNickname: g.disallowChangeNickname,
         },
