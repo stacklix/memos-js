@@ -723,6 +723,13 @@ export const userServiceClient = {
     const j = await apiJson<{ stats: Record<string, unknown>[] }>("/users:stats");
     return { stats: j.stats.map((row) => userStatsFromJson(row)) };
   },
+  async batchGetUsers(req: { usernames: string[] }): Promise<{ users: User[] }> {
+    const j = await apiJson<{ users?: Record<string, unknown>[] }>("/users:batchGet", {
+      method: "POST",
+      body: JSON.stringify({ usernames: req.usernames }),
+    });
+    return { users: (j.users ?? []).map((u) => userFromJson(u)) };
+  },
 };
 
 export const shortcutServiceClient = {
@@ -1027,6 +1034,13 @@ export const attachmentServiceClient = {
   async deleteAttachment(req: { name: string }): Promise<object> {
     const id = req.name.replace(/^attachments\//, "");
     await apiJson(`/attachments/${encodeURIComponent(id)}`, { method: "DELETE" });
+    return {};
+  },
+  async batchDeleteAttachments(req: { names: string[] }): Promise<object> {
+    await apiJson("/attachments:batchDelete", {
+      method: "POST",
+      body: JSON.stringify({ names: req.names }),
+    });
     return {};
   },
 };

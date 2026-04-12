@@ -50,6 +50,8 @@ interface AudioAttachmentItemProps {
   mimeType: string;
   size?: number;
   title?: string;
+  compact?: boolean;
+  className?: string;
 }
 
 const AudioAttachmentItem = ({ filename, sourceUrl, mimeType, size, title }: AudioAttachmentItemProps) => {

@@ -19,6 +19,10 @@ export interface AttachmentItem {
 export interface LocalFile {
   readonly file: File;
   readonly previewUrl: string;
+  readonly origin?: "audio_recording" | "upload";
+  readonly audioMeta?: {
+    durationSeconds: number;
+  };
 }
 
 function categorizeFile(mimeType: string): FileCategory {

@@ -82,21 +82,33 @@ describe("integration: memos", () => {
     expect((get.body as { content: string }).content).toBe("v2");
   });
 
-  it("DELETE memo then GET returns 404", async () => {
+  it("DELETE memo (soft) returns archived state to creator; ?force=true hard-deletes (404)", async () => {
     const app = createTestApp();
     await postFirstUser(app, { username: "deler", password: "secret123", role: "USER" });
     const { accessToken } = await signIn(app, "deler", "secret123");
+
+    // Soft-delete (default): memo is archived, still accessible to creator.
     const created = await postMemo(app, accessToken, { content: "x", visibility: "PRIVATE" });
     const id = memoIdFromName((created.body as { name: string }).name);
-
     const del = await apiJson(app, `/api/v1/memos/${encodeURIComponent(id)}`, {
       method: "DELETE",
       bearer: accessToken,
     });
     expect(del.status).toBe(200);
+    const getAfterSoft = await apiJson(app, `/api/v1/memos/${encodeURIComponent(id)}`, { bearer: accessToken });
+    expect(getAfterSoft.status).toBe(200);
+    expect((getAfterSoft.body as { state: string }).state).toBe("ARCHIVED");
 
-    const get = await apiJson(app, `/api/v1/memos/${encodeURIComponent(id)}`, { bearer: accessToken });
-    expect(get.status).toBe(404);
+    // Hard-delete (?force=true): memo is removed, returns 404 on GET.
+    const created2 = await postMemo(app, accessToken, { content: "y", visibility: "PRIVATE" });
+    const id2 = memoIdFromName((created2.body as { name: string }).name);
+    const del2 = await apiJson(app, `/api/v1/memos/${encodeURIComponent(id2)}?force=true`, {
+      method: "DELETE",
+      bearer: accessToken,
+    });
+    expect(del2.status).toBe(200);
+    const getAfterHard = await apiJson(app, `/api/v1/memos/${encodeURIComponent(id2)}`, { bearer: accessToken });
+    expect(getAfterHard.status).toBe(404);
   });
 
   it("POST memo empty location object stores zero defaults", async () => {

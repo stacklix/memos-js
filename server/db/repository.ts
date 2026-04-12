@@ -305,7 +305,7 @@ export function createRepository(sql: SqlAdapter) {
     if (uniq.length === 0) return map;
     const placeholders = uniq.map(() => "?").join(",");
     const rows = await sql.queryAll<{ id: number; uid: string }>(
-      `SELECT id, uid FROM memo WHERE id IN (${placeholders})`,
+      `SELECT id, uid FROM memo WHERE id IN (${placeholders}) AND row_status != 'ARCHIVED'`,
       uniq,
     );
     for (const r of rows) map.set(r.id, r.uid);
