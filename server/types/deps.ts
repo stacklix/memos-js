@@ -28,4 +28,6 @@ export type AppDeps = {
   attachmentDataDir?: string;
   attachmentR2Bucket?: R2Bucket;
   sendNotificationEmail?: (args: NotificationEmailSendArgs) => Promise<void>;
+  /** When true, mount the `/api/v1/sse` Server-Sent Events endpoint. Node.js only; CF Worker streaming is not supported. */
+  enableSSE?: boolean;
 };

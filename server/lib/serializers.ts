@@ -88,6 +88,31 @@ export function memoToJson(
 
 export function attachmentToJson(a: DbAttachmentRow) {
   const isExternalLink = /^https?:\/\//i.test(a.reference);
+  let motionMedia:
+    | {
+        family: string;
+        role: string;
+        groupId: string;
+        presentationTimestampUs: string;
+        hasEmbeddedVideo: boolean;
+      }
+    | undefined;
+  try {
+    const pl = JSON.parse(a.payload || "{}") as Record<string, unknown>;
+    if (pl.motionMedia && typeof pl.motionMedia === "object") {
+      const mm = pl.motionMedia as Record<string, unknown>;
+      motionMedia = {
+        family: typeof mm.family === "string" ? mm.family : "MOTION_MEDIA_FAMILY_UNSPECIFIED",
+        role: typeof mm.role === "string" ? mm.role : "MOTION_MEDIA_ROLE_UNSPECIFIED",
+        groupId: typeof mm.groupId === "string" ? mm.groupId : "",
+        presentationTimestampUs:
+          typeof mm.presentationTimestampUs === "string" ? mm.presentationTimestampUs : "0",
+        hasEmbeddedVideo: Boolean(mm.hasEmbeddedVideo),
+      };
+    }
+  } catch {
+    // Ignore malformed payload — motionMedia will be omitted.
+  }
   return {
     name: `attachments/${a.id}`,
     createTime: protoJsonTimestamp(a.create_time),
@@ -98,5 +123,6 @@ export function attachmentToJson(a: DbAttachmentRow) {
     type: a.type,
     size: String(a.size),
     memo: a.memo_id ? `memos/${a.memo_id}` : undefined,
+    ...(motionMedia !== undefined ? { motionMedia } : {}),
   };
 }

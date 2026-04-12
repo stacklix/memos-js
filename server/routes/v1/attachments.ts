@@ -209,6 +209,38 @@ export function createAttachmentRoutes(deps: AppDeps) {
     return c.json(attachmentToJson(row));
   });
 
+  r.post("/:action", async (c) => {
+    if (c.req.param("action") !== ":batchDelete") {
+      return jsonError(c, GrpcCode.UNIMPLEMENTED, "unknown action");
+    }
+    const auth = c.get("auth");
+    if (!auth) return jsonError(c, GrpcCode.UNAUTHENTICATED, "permission denied");
+    type Body = { names?: string[] };
+    let body: Body;
+    try {
+      body = (await c.req.json()) as Body;
+    } catch {
+      return jsonError(c, GrpcCode.INVALID_ARGUMENT, "invalid json");
+    }
+    const names = Array.isArray(body.names) ? body.names : [];
+    if (names.length > 100) {
+      return jsonError(c, GrpcCode.INVALID_ARGUMENT, "too many attachment names; max 100");
+    }
+    for (const name of names) {
+      const uid = attachmentIdFromName(name);
+      if (!uid) continue;
+      const existing = await repo.getAttachmentByUid(uid);
+      if (!existing) continue;
+      if (existing.creator_username !== auth.username && auth.role !== "ADMIN") {
+        return jsonError(c, GrpcCode.PERMISSION_DENIED, "permission denied");
+      }
+      const storage = await getStorage();
+      await storage.delete(existing.reference);
+      await repo.deleteAttachment(uid);
+    }
+    return c.json({});
+  });
+
   r.get("/:attachment", async (c) => {
     const uid = attachmentIdFromName(c.req.param("attachment"));
     if (!uid) return jsonError(c, GrpcCode.INVALID_ARGUMENT, "invalid attachment id");

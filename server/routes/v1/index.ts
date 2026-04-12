@@ -13,6 +13,7 @@ import { createUserRoutes } from "./users.js";
 import { createMemoRoutes, createShareByTokenRoute } from "./memos.js";
 import { createAttachmentRoutes } from "./attachments.js";
 import { createIdentityProviderRoutes } from "./idp.js";
+import { createSseRoutes } from "./sse.js";
 import { userStatsFieldsFromMemoRows } from "../../lib/user-stats-from-memos.js";
 
 export function createV1App(deps: AppDeps) {
@@ -111,6 +112,10 @@ export function createV1App(deps: AppDeps) {
   v1.route("/attachments", createAttachmentRoutes(deps));
   v1.route("/identity-providers", createIdentityProviderRoutes(deps));
   v1.route("/shares", createShareByTokenRoute(deps));
+  // Node.js only — CF Worker streaming is not supported for long-lived SSE connections.
+  if (deps.enableSSE) {
+    v1.route("/sse", createSseRoutes());
+  }
 
   return v1;
 }

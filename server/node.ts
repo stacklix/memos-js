@@ -76,6 +76,7 @@ const inner = createApp({
   defaultAttachmentStorageType: "LOCAL",
   attachmentDataDir: dataDir,
   sendNotificationEmail: sendNotificationEmailViaSmtp,
+  enableSSE: true,
 });
 if (debugHttp) {
   console.log(

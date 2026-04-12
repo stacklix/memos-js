@@ -1009,8 +1009,8 @@ export function createRepository(sql: SqlAdapter) {
       await sql.execute(`UPDATE memo SET ${sets.join(", ")} WHERE uid = ?`, vals);
     },
 
-    /** Hard delete (aligns with golang `DeleteMemo`). */
-    async softDeleteMemo(uid: string): Promise<void> {
+    /** Hard delete (removes the memo row entirely). */
+    async hardDeleteMemo(uid: string): Promise<void> {
       const idRow = await sql.queryOne<{ id: number }>("SELECT id FROM memo WHERE uid = ?", [
         uid,
       ]);
@@ -1026,6 +1026,14 @@ export function createRepository(sql: SqlAdapter) {
         [mid, mid],
       );
       await sql.execute("DELETE FROM memo WHERE id = ?", [mid]);
+    },
+
+    /** Soft delete: set row_status to ARCHIVED (aligns with golang `DeleteMemo` default behaviour). */
+    async archiveMemo(uid: string): Promise<void> {
+      await sql.execute("UPDATE memo SET row_status = 'ARCHIVED', updated_ts = ? WHERE uid = ?", [
+        Math.floor(Date.now() / 1000),
+        uid,
+      ]);
     },
 
     async listTopLevelMemosForUserStats(args: {

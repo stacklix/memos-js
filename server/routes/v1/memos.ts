@@ -21,6 +21,7 @@ import {
 import { parseAttachmentFilter } from "../../lib/attachment-filter.js";
 import { parseInstanceNotificationSetting } from "../../lib/instance-notification-setting.js";
 import { dispatchMemoCommentWebhooks } from "../../services/user-webhook-dispatch.js";
+import { sseBus } from "../../lib/sse-bus.js";
 
 function memoIdFromName(name: string): string | null {
   const p = name.startsWith("memos/") ? name.slice("memos/".length) : name;
@@ -203,6 +204,7 @@ export function createMemoRoutes(deps: AppDeps) {
       pinned: Boolean(m.pinned),
       location: locIn.value,
     });
+    sseBus.emit({ type: "memo.created", name: `memos/${row.id}` });
     return c.json(memoToJson(row));
   });
 
@@ -268,6 +270,7 @@ export function createMemoRoutes(deps: AppDeps) {
       display_time: m.displayTime ?? null,
       ...locUpdate,
     });
+    sseBus.emit({ type: "memo.updated", name: `memos/${id}` });
     const next = await repo.getMemoById(id);
     if (!next) return jsonError(c, GrpcCode.NOT_FOUND, "memo not found");
     return c.json(await memoToJsonWithAttachments(next));
@@ -282,7 +285,12 @@ export function createMemoRoutes(deps: AppDeps) {
     if (row.creator_username !== auth.username && auth.role !== "ADMIN") {
       return jsonError(c, GrpcCode.PERMISSION_DENIED, "permission denied");
     }
-    await repo.softDeleteMemo(id);
+    if (c.req.query("force") === "true") {
+      await repo.hardDeleteMemo(id);
+    } else {
+      await repo.archiveMemo(id);
+    }
+    sseBus.emit({ type: "memo.deleted", name: `memos/${id}` });
     return c.json({});
   });
 
@@ -455,6 +463,7 @@ export function createMemoRoutes(deps: AppDeps) {
         }
       }
     }
+    sseBus.emit({ type: "memo.comment.created", name: `memos/${row.id}`, parent: `memos/${id}` });
     return c.json(await memoToJsonWithAttachments(row));
   });
 
@@ -500,6 +509,7 @@ export function createMemoRoutes(deps: AppDeps) {
       creator: auth.username,
       reactionType: rt,
     });
+    sseBus.emit({ type: "reaction.upserted", name: `memos/${id}/reactions/${rid}`, parent: `memos/${id}` });
     const list = await repo.listReactions(id);
     const x = list.find((l) => l.creator_username === auth.username && l.reaction_type === rt);
     if (!x) return jsonError(c, GrpcCode.INTERNAL, "failed to read reaction");
@@ -525,6 +535,7 @@ export function createMemoRoutes(deps: AppDeps) {
       return jsonError(c, GrpcCode.PERMISSION_DENIED, "permission denied");
     }
     await repo.deleteReaction(memoId, c.req.param("rid"));
+    sseBus.emit({ type: "reaction.deleted", name: `memos/${memoId}/reactions/${c.req.param("rid")}`, parent: `memos/${memoId}` });
     return c.json({});
   });
 
