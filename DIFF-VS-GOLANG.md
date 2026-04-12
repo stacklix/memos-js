@@ -1,7 +1,11 @@
-# Current Branch (`master`) vs `golang` Branch: Gap List
+# Current Branch (`master`) vs `golang` Branch: Remaining Differences
 
-> Baseline: `master` (2026-04-12) vs `golang@40fd700f` (2026-04-12).
+> Updated: 2026-04-12. Baseline: `master` vs `golang@40fd700f`.
 > REST API contract reference: [https://usememos.com/docs/api/latest](https://usememos.com/docs/api/latest) and `golang:proto/gen/openapi.yaml`.
+>
+> **Excluded by design** (will not be closed in this fork):
+> - Instance `STORAGE` setting backend API + dynamic `supportedStorageTypes` frontend rendering
+> - SSE endpoint on Cloudflare Worker (CF streaming is not compatible with long-lived SSE)
 
 ---
 
@@ -43,9 +47,7 @@ All 9 business tables are **structurally identical** across both branches (colum
 
 | Method | Path | Notes |
 | --- | --- | --- |
-| `POST` | `/api/v1/users:batchGet` | Request: `{ "usernames": ["users/alice"] }`; Response: `{ "users": [...] }`. Returns up to 100 active users. |
-| `POST` | `/api/v1/attachments:batchDelete` | Request: `{ "names": ["attachments/uid1"] }`; Response: `{}`. Deletes multiple attachments in one call. |
-| `GET` | `/api/v1/sse` | Server-Sent Events endpoint for real-time push. Registered outside of Connect/gRPC; not in OpenAPI spec. Frontend may rely on it for live updates. |
+| `GET` | `/api/v1/sse` | SSE endpoint exists in `master` but only for **Node.js** (`enableSSE: true`). CF Worker does not mount it (streaming incompatible). `golang` has it unconditionally. |
 
 > **Note:** `GET /api/v1/users/{user}:getStats` **is implemented** in `master` (handled inside the wildcard `GET /users/:username` handler via suffix matching), despite not being a named route.
 
@@ -53,33 +55,33 @@ All 9 business tables are **structurally identical** across both branches (colum
 
 | Resource | `master` path | `golang` / OpenAPI path | Impact |
 | --- | --- | --- | --- |
-| Instance settings (GET) | `GET /api/v1/instance/settings/{KEY}` | `GET /api/v1/instance/{instance}/*` | Master path is shorter by one segment. Golang clients would 404 against master; vice versa. |
-| Instance settings (PATCH) | `PATCH /api/v1/instance/settings/{KEY}` | `PATCH /api/v1/instance/{instance}/*` | Same as above. |
+| Instance settings (GET) | `GET /api/v1/instance/settings/{KEY}` | `GET /api/v1/{name=instance/settings/*}` | Both resolve to the same effective path; `master` uses a simpler param extraction. |
+| Instance settings (PATCH) | `PATCH /api/v1/instance/settings/{KEY}` | `PATCH /api/v1/{setting.name=instance/settings/*}` | Same as above. |
 
 ### 2.3 Semantic / field differences in existing routes
 
 | Module | `master` behavior | `golang` behavior |
 | --- | --- | --- |
 | **Memo `name` field** | `"memos/{integer_id}"` (e.g. `memos/42`) | `"memos/{uid}"` (e.g. `memos/01HX...`) — uses the `uid` text column |
-| **`PATCH /memos/{memo}`** | Applies any fields present in body; ignores `updateMask` | Requires `updateMask` query param (FieldMask) |
-| **`DELETE /memos/{memo}`** | Always cascades; no `force` param | Supports optional `?force=true` query param |
-| **`GET /memos` list params** | `pageSize`, `pageToken`, `filter`, `orderBy` | Same, plus `state` (enum) and `showDeleted` (bool) |
-| **`PATCH /users/{user}/settings/{setting}`** | Applies all fields in body | Requires `updateMask` query param |
-| **Attachment `motionMedia` field** | Not serialized in `attachmentToJson()` | Present in golang schema (`MotionMedia` object for Google Motion Photos) |
-| **Instance `STORAGE` setting** | Returns extra `supportedStorageTypes` (dynamic, includes `R2`) | Fixed enum `DATABASE/LOCAL/S3`; no dynamic field |
+| **`PATCH /memos/{memo}`** | Applies any fields present in body; ignores `updateMask` | Requires `updateMask` in body (FieldMask) |
+| **`GET /memos` list params** | `pageSize`, `pageToken`, `filter`, `orderBy`, `state` | Same, plus `showDeleted` (bool) |
+| **`PATCH /users/{user}/settings/{setting}`** | Applies all fields in body | Requires `updateMask` in body |
+| **Instance `STORAGE` setting** | Returns extra `supportedStorageTypes` (dynamic, includes `R2`) | Fixed enum `DATABASE/LOCAL/S3`; no dynamic field — **excluded by design** |
 | **Memo `filter` / CEL** | Subset implementation in `server/lib/memo-filter.ts` | Full CEL compilation semantics |
 | **MCP routes** | Not implemented | `server/router/mcp/*` registered on echo router |
 
-### 2.4 Resolved gaps (already aligned)
+### 2.4 Resolved gaps
 
 | Module | Status |
 | --- | --- |
 | Auth endpoints (`/signin`, `/signout`, `/refresh`, `/me`) | ✅ Fully aligned |
 | User CRUD, PAT, webhook, notification, shortcut endpoints | ✅ Fully aligned |
 | Memo CRUD, comments, reactions, relations, shares | ✅ Fully aligned |
-| Attachment CRUD | ✅ Fully aligned (except `batchDelete` and `motionMedia`) |
+| `DELETE /memos/{memo}` soft-delete / `?force=true` | ✅ Aligned — archives by default; `?force=true` hard-deletes |
+| Attachment CRUD, `batchDelete`, `motionMedia` field | ✅ Fully aligned |
+| `POST /api/v1/users:batchGet` | ✅ Implemented |
 | Identity provider CRUD | ✅ Fully aligned |
-| GENERAL settings persistence (`additionalScript`, `additionalStyle`, `customProfile`, `weekStartDayOffset`) | ✅ Fixed in `master` |
+| GENERAL settings persistence (`additionalScript`, `additionalStyle`, `customProfile`, `weekStartDayOffset`) | ✅ Fixed |
 
 ---
 
@@ -87,18 +89,17 @@ All 9 business tables are **structurally identical** across both branches (colum
 
 ### 3.1 Pages (`web/src/pages/`)
 
-All 14 pages exist in both branches. The following pages have notable behavioral/UI changes:
+All 14 pages exist in both branches. The following pages have notable additions in `master` beyond the `golang` baseline:
 
 | Page | Nature of change in `master` |
 | --- | --- |
-| `Attachments.tsx` | Major refactor of attachment library UI (~200 lines changed) |
-| `SignIn.tsx` | Significant UI additions (~87 lines added) |
+| `SignIn.tsx` | Significant UI additions (~87 lines added) — SSO form, additional UI |
 | `MemoDetail.tsx` | Sidebar/layout changes (~69 lines) |
 | `Setting.tsx` | Settings panel changes (~29 lines) |
 | `AuthCallback.tsx` | Minor changes (~13 lines) |
 | `Inboxes.tsx` | Minor additions (~4 lines) |
 
-### 3.2 Components present in `master` but NOT in `golang`
+### 3.2 Components present in `master` but NOT in `golang` (master additions)
 
 | Component | Notes |
 | --- | --- |
@@ -108,28 +109,14 @@ All 14 pages exist in both branches. The following pages have notable behavioral
 | `MemoActionMenu/MemoShareImageDialog.tsx` | Share-as-image dialog |
 | `MemoActionMenu/MemoShareImagePreview.tsx` | Image preview for sharing |
 | `MemoActionMenu/memoShareImage.ts` | Share image generation logic |
-| `MemoContent/ConditionalComponent.tsx` | Conditional rendering helper |
-| `MemoContent/Mention.tsx` | @mention rendering |
-| `MemoContent/MentionResolutionContext.tsx` | Mention resolution context |
-| `MemoContent/TrustedIframe.ts` | Sandboxed iframe support |
 | `MemoContent/constants.ts` | Content rendering constants |
-| `MemoEditor/hooks/useVoiceRecorder.ts` | Voice recorder hook (replaces `useAudioRecorder` + `useAudioWaveform` from golang) |
+| `MemoEditor/hooks/useVoiceRecorder.ts` | Voice recorder hook (master equivalent of golang's `useAudioRecorder` + `useAudioWaveform`; all three now coexist) |
 | `MemoEditor/services/` (6 files) | Service layer: cache, error, memo, upload, validation, index |
 | `MemoEditor/state/` (5 files) | State management: actions, context, index, reducer, types |
 
-### 3.3 Components present in `golang` but NOT in `master`
+### 3.3 Realtime refresh (SSE)
 
-| Component | Notes |
-| --- | --- |
-| `AttachmentLibrary/` | Attachment management library component (folder with multiple files) |
-| `MotionPhotoPlayer.tsx` | Google Motion Photo video playback |
-| `MotionPhotoPreview.tsx` | Motion Photo preview/thumbnail |
-| `MemoEditor/hooks/useAudioRecorder.ts` | Audio recorder hook (master uses `useVoiceRecorder.ts` instead) |
-| `MemoEditor/hooks/useAudioWaveform.ts` | Waveform visualization hook |
-
-### 3.4 Realtime refresh (SSE)
-
-Frontend in both branches may expect realtime updates. The `/api/v1/sse` backend endpoint exists in `golang` but is **absent** in `master`.
+The `/api/v1/sse` endpoint is mounted in `master` **Node.js only** (via `enableSSE: true`). CF Worker does not expose SSE. `golang` exposes it unconditionally.
 
 ---
 
@@ -140,8 +127,8 @@ Frontend in both branches may expect realtime updates. The `/api/v1/sse` backend
 | Frontend static hosting | Worker `ASSETS` binding / Node local static dir (`dist/public/`) | Built-in Echo fileserver |
 | Primary DB | Node → SQLite; Worker → D1 (Cloudflare) | Single runtime (SQLite / PostgreSQL / MySQL via driver) |
 | Object storage | `DATABASE / LOCAL / S3 / R2` | `DATABASE / LOCAL / S3` (no R2) |
-| Realtime | SSE absent | `GET /api/v1/sse` present |
-| MCP | Absent | `server/router/mcp/*` |
+| Realtime (SSE) | Node.js only; CF Worker excluded | Unconditionally available |
+| MCP | Not implemented | `server/router/mcp/*` |
 
 ---
 
