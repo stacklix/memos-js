@@ -25,6 +25,7 @@ jobs:
       - name: Sync `golang` branch to latest upstream tag
         env:
           UPSTREAM_REPO: https://github.com/usememos/memos.git
+          SYNC_GITHUB_TOKEN: ${{ secrets.SYNC_GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 
@@ -55,5 +56,12 @@ jobs:
             exit 0
           fi
 
+          if [ -z "${SYNC_GITHUB_TOKEN:-}" ]; then
+            echo "Missing secret SYNC_GITHUB_TOKEN."
+            echo "Create a PAT with repo + workflow scopes and add it as repo secret SYNC_GITHUB_TOKEN."
+            exit 1
+          fi
+
+          git remote set-url origin "https://x-access-token:${SYNC_GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git push origin "$tag_sha:refs/heads/golang" --force
           echo "Updated golang to $latest_tag ($tag_sha)."
