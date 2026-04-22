@@ -21,6 +21,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Sync `golang` branch to latest upstream tag
         env:
@@ -62,6 +63,6 @@ jobs:
             exit 1
           fi
 
-          git remote set-url origin "https://x-access-token:${SYNC_GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          git push origin "$tag_sha:refs/heads/golang" --force
+          push_url="https://x-access-token:${SYNC_GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push "$push_url" "$tag_sha:refs/heads/golang" --force
           echo "Updated golang to $latest_tag ($tag_sha)."
