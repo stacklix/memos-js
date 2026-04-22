@@ -1,0 +1,59 @@
+name: Sync Upstream Latest Tag to Golang Branch
+
+on:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    name: Sync latest upstream tag
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Sync `golang` branch to latest upstream tag
+        env:
+          UPSTREAM_REPO: https://github.com/usememos/memos.git
+        run: |
+          set -euo pipefail
+
+          latest_tag="$(
+            git ls-remote --tags --refs "$UPSTREAM_REPO" \
+              | awk '{print $2}' \
+              | sed 's#^refs/tags/##' \
+              | rg '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+              | sort -V \
+              | tail -n 1
+          )"
+          if [ -z "$latest_tag" ]; then
+            echo "No matching stable semver tags found, skipping."
+            exit 0
+          fi
+          echo "Latest upstream tag: $latest_tag"
+
+          git fetch --force --tags "$UPSTREAM_REPO" "refs/tags/$latest_tag:refs/tags/$latest_tag"
+
+          tag_sha="$(git rev-list -n 1 "$latest_tag")"
+          current_golang_sha="$(git ls-remote origin refs/heads/golang | awk '{print $1}')"
+
+          echo "Tag SHA: $tag_sha"
+          echo "Current golang branch SHA: ${current_golang_sha:-<missing>}"
+
+          if [ "$current_golang_sha" = "$tag_sha" ]; then
+            echo "golang is already at $latest_tag ($tag_sha), skipping push."
+            exit 0
+          fi
+
+          git push origin "$tag_sha:refs/heads/golang" --force
+          echo "Updated golang to $latest_tag ($tag_sha)."
