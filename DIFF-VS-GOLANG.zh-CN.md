@@ -1,7 +1,7 @@
 # 当前分支（`master`）vs `golang` 分支：剩余差异
 
-> 更新时间：2026-04-12。对照基线：`master` vs `golang@40fd700f`。
-> REST API 契约参考：[https://usememos.com/docs/api/latest](https://usememos.com/docs/api/latest) 及 `golang:proto/gen/openapi.yaml`。
+> 更新时间：2026-04-29。对照基线：`master` vs `golang@9bf648ac`（v0.28.0）。
+> REST API 契约参考：[https://usememos.com/docs/api/0-28-0](https://usememos.com/docs/api/0-28-0) 及 `golang:proto/gen/openapi.yaml`。
 >
 > **设计排除项**（本 fork 不计划对齐）：
 > - Instance `STORAGE` 设置后端 API + 动态 `supportedStorageTypes` 前端渲染
@@ -13,24 +13,45 @@
 
 ### 1.1 表级对比（`migrations/0001_initial.sql` vs `store/migration/sqlite/LATEST.sql`）
 
-两个分支的 9 张业务表**结构完全相同**（列名、类型、约束、默认值均一致）：
+原有 9 张业务表**结构完全相同**（列名、类型、约束、默认值均一致）：
 
 `system_setting`、`user`、`user_setting`、`memo`、`memo_relation`、`attachment`、`idp`、`inbox`、`reaction`、`memo_share`
 
-### 1.2 仅 `master` 存在的表
+### 1.2 仅 `golang` 存在的表（`master` 尚未添加）
+
+| 表 | 用途 |
+| --- | --- |
+| `user_identity` | 存储每个用户的已关联 SSO / OAuth2 身份；支持新增的 `linkedIdentities` REST 接口 |
+
+`golang` 中 `user_identity` 的表结构：
+```sql
+CREATE TABLE user_identity (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id    INTEGER NOT NULL,
+  provider   TEXT    NOT NULL,
+  extern_uid TEXT    NOT NULL,
+  created_ts BIGINT  NOT NULL DEFAULT (strftime('%s', 'now')),
+  updated_ts BIGINT  NOT NULL DEFAULT (strftime('%s', 'now')),
+  UNIQUE (provider, extern_uid),
+  UNIQUE (user_id, provider)
+);
+CREATE INDEX idx_user_identity_user_id ON user_identity(user_id);
+```
+
+### 1.3 仅 `master` 存在的表
 
 | 表 | 用途 |
 | --- | --- |
 | `schema_migrations(version INTEGER PK)` | Node 递增迁移版本记录，`golang` 无此表 |
 
-### 1.3 DDL 层差异（非结构语义）
+### 1.4 DDL 层差异（非结构语义）
 
 | 差异 | `master` | `golang` |
 | --- | --- | --- |
 | `CREATE TABLE` 保护 | `CREATE TABLE IF NOT EXISTS` | `CREATE TABLE` |
 | 索引保护 | `CREATE INDEX IF NOT EXISTS` | `CREATE INDEX` |
 
-### 1.4 迁移机制差异
+### 1.5 迁移机制差异
 
 | 项目 | `master` | `golang` |
 | --- | --- | --- |
@@ -48,6 +69,10 @@
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | `GET` | `/api/v1/sse` | SSE 接口在 `master` 中**仅 Node.js** 可用（`enableSSE: true`）；CF Worker 不挂载（流式传输不兼容）。`golang` 无条件提供。 |
+| `POST` | `/api/v1/ai:transcribe` | 通过实例 AI 提供商转录音频。需要 `AIService` 及 `instance/settings/AI` 配置。`master` **未实现**。 |
+| `GET` | `/api/v1/users/{user}/linkedIdentities` | 列出某用户已关联的 SSO 身份。依赖 `user_identity` 表（见 §1.2）。`master` **未实现**。 |
+| `GET` | `/api/v1/users/{user}/linkedIdentities/{linkedIdentity}` | 获取某条已关联 SSO 身份详情。`master` **未实现**。 |
+| `DELETE` | `/api/v1/users/{user}/linkedIdentities/{linkedIdentity}` | 解除某条 SSO 身份关联。`master` **未实现**。 |
 
 > **注：** `GET /api/v1/users/{user}:getStats` **已在 `master` 中实现**（通过通配路由 `GET /users/:username` 按后缀匹配分发），只是未作为独立命名路由注册。
 
@@ -63,7 +88,9 @@
 | 模块 | `master` 行为 | `golang` 行为 |
 | --- | --- | --- |
 | **Instance `STORAGE` 设置** | 额外返回 `supportedStorageTypes`（动态，含 `R2`） | 固定枚举 `DATABASE/LOCAL/S3`，无动态字段 — **设计排除** |
+| **Instance `AI` 设置** | `instance/settings/AI` 键**不持久化**（无对应后端处理逻辑） | 完整 `AIService` + AI 实例设置（`InstanceSetting_Key.AI`） |
 | **Memo `filter` / CEL** | `server/lib/memo-filter.ts` 子集实现（覆盖 Web 客户端常用模式：creator、visibility、tag、pinned、时间范围、content.contains） | 完整 CEL 编译语义 |
+| **API 传输层** | `web/src/connect.ts` 实现**自定义 REST 客户端**（约 1110 行），将 gRPC 风格的服务调用翻译为普通 JSON REST 请求 | `web/src/connect.ts` 通过 `@connectrpc/connect-web` 使用 **Connect gRPC/协议传输**（约 203 行）；原生 binary+JSON Connect 协议 |
 
 ### 2.4 已对齐项
 
@@ -89,15 +116,15 @@
 
 ### 3.1 页面（`web/src/pages/`）
 
-两个分支均有全部 14 个页面。以下页面在 `master` 中相比 `golang` 基线有额外新增内容：
+两个分支均有全部 14 个页面。以下页面在两分支之间有显著差异：
 
-| 页面 | master 中的变动性质 |
+| 页面 | `master` vs `golang` 差异性质 |
 | --- | --- |
-| `SignIn.tsx` | UI 显著新增（约 87 行）— SSO 表单、额外 UI |
-| `MemoDetail.tsx` | 侧边栏/布局调整（约 69 行） |
-| `Setting.tsx` | 设置面板调整（约 29 行） |
-| `AuthCallback.tsx` | 小幅改动（约 13 行） |
-| `Inboxes.tsx` | 小幅增加（约 4 行） |
+| `SignIn.tsx` | `master` 新增 SSO 登录表单及额外 UI（约 87 行）；`golang` 基线更简洁 |
+| `MemoDetail.tsx` | `master` 有侧边栏/布局调整（约 69 行） |
+| `Setting.tsx` | `golang` 新增 **AI** 设置区块和 `LinkedIdentitySection`；`master` 缺少这些 |
+| `AuthCallback.tsx` | 小幅差异（约 13 行） |
+| `Inboxes.tsx` | `master` 小幅新增（约 4 行） |
 
 ### 3.2 仅 `master` 存在的组件（master 独有扩展）
 
@@ -114,7 +141,26 @@
 | `MemoEditor/services/`（6 个文件） | 服务层：cache、error、memo、upload、validation、index |
 | `MemoEditor/state/`（5 个文件） | 状态管理：actions、context、index、reducer、types |
 
-### 3.3 实时刷新（SSE）
+### 3.3 仅 `golang` 存在的组件（`master` 缺少）
+
+| 组件 | 说明 |
+| --- | --- |
+| `Settings/AISection.tsx` | AI 提供商配置面板（对应 `instance/settings/AI`）；`master` 无此组件 |
+| `Settings/LinkedIdentitySection.tsx` | 列出并管理用户已关联的 SSO 身份；依赖 `linkedIdentities` API（见 §2.1） |
+| `Settings/InfoChip.tsx` | 可复用的 badge/chip 组件，被 `LinkedIdentitySection` 和 `SSOSection` 使用 |
+| `router/guards.tsx` | 路由守卫组件：`LandingRoute`、`RequireAuthRoute`、`RequireGuestRoute`；`golang` 将其提取为独立文件并通过嵌套 `<Outlet>` 方式使用；`master` 将类似逻辑内联在路由配置中 |
+| `helpers/sso-display.ts` | SSO 提供商展示工具函数（`getIdentityProviderTypeLabel`、`getOAuth2SummaryItems` 等）；由增强版 `SSOSection` 使用 |
+
+### 3.4 两分支之间有差异的组件
+
+| 组件 | 差异说明 |
+| --- | --- |
+| `Settings/SSOSection.tsx` | `golang` 版本引入 `InfoChip`、`sso-display` 工具函数，使用结构化行数据（`IdentityProviderRow`）并增加错误处理；`master` 版本较简单 |
+| `Settings/MyAccountSection.tsx` | `golang` 新增**删除账号**功能并渲染 `LinkedIdentitySection`；`master` 只展示 PAT 和修改密码 |
+| `router/index.tsx` | `golang` 导出 `routeConfig` 数组以供测试、使用 `RequireAuthRoute`/`RequireGuestRoute` 守卫，并直接（非懒加载）引入 `Home`；`master` 对所有路由使用懒加载，无显式认证守卫 |
+| `web/src/App.tsx` | `golang` 在挂载时调用 `cleanupExpiredOAuthState()`；`master` 无此逻辑 |
+
+### 3.5 实时刷新（SSE）
 
 `/api/v1/sse` 接口在 `master` 中**仅 Node.js** 可用（`enableSSE: true`）；CF Worker 不挂载。`golang` 无条件提供。
 
@@ -129,6 +175,7 @@
 | 对象存储 | `DATABASE / LOCAL / S3 / R2` | `DATABASE / LOCAL / S3`（无 R2） |
 | 实时推送（SSE） | 仅 Node.js；CF Worker 排除 | 无条件可用 |
 | MCP 接口 | ✅ 已实现，挂载于 `/mcp`（无状态逐请求模式） | `server/router/mcp/*`（有状态会话模式） |
+| 前端 API 传输层 | `connect.ts` 自定义 REST 客户端 | 通过 `@connectrpc/connect-web` 的 Connect gRPC/协议传输 |
 
 ---
 
