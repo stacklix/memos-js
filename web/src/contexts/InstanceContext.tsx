@@ -5,6 +5,8 @@ import {
   InstanceProfile,
   InstanceProfileSchema,
   InstanceSetting,
+  InstanceSetting_AISetting,
+  InstanceSetting_AISettingSchema,
   InstanceSetting_GeneralSetting,
   InstanceSetting_GeneralSettingSchema,
   InstanceSetting_Key,
@@ -41,6 +43,7 @@ interface InstanceContextValue extends InstanceState {
   storageSetting: InstanceSetting_StorageSetting;
   storageSupportedTypes: InstanceSetting_StorageSetting_StorageType[];
   tagsSetting: InstanceSetting_TagsSetting;
+  aiSetting: InstanceSetting_AISetting;
   initialize: () => Promise<void>;
   fetchSetting: (key: InstanceSetting_Key) => Promise<void>;
   updateSetting: (setting: InstanceSetting) => Promise<void>;
@@ -109,6 +112,14 @@ export function InstanceProvider({ children }: { children: ReactNode }) {
     return create(InstanceSetting_TagsSettingSchema, {});
   }, [state.settings]);
 
+  const aiSetting = useMemo((): InstanceSetting_AISetting => {
+    const setting = state.settings.find((s) => s.name === `${instanceSettingNamePrefix}AI`);
+    if (setting?.value.case === "aiSetting") {
+      return setting.value.value;
+    }
+    return create(InstanceSetting_AISettingSchema, {});
+  }, [state.settings]);
+
   const initialize = useCallback(async () => {
     setState((prev) => ({ ...prev, isLoading: true }));
     try {
@@ -164,6 +175,7 @@ export function InstanceProvider({ children }: { children: ReactNode }) {
       storageSetting,
       storageSupportedTypes,
       tagsSetting,
+      aiSetting,
       initialize,
       fetchSetting,
       updateSetting,
@@ -175,6 +187,7 @@ export function InstanceProvider({ children }: { children: ReactNode }) {
       storageSetting,
       storageSupportedTypes,
       tagsSetting,
+      aiSetting,
       initialize,
       fetchSetting,
       updateSetting,

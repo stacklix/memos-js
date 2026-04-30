@@ -12,6 +12,7 @@ import { redirectOnAuthFailure } from "./utils/auth-redirect";
 import type {
   InstanceProfile,
   InstanceSetting,
+  InstanceSetting_AISetting,
   InstanceSetting_StorageSetting_StorageType,
   InstanceSetting_MemoRelatedSetting,
   InstanceSetting_NotificationSetting,
@@ -20,6 +21,9 @@ import type {
 import {
   InstanceProfileSchema,
   InstanceSettingSchema,
+  InstanceSetting_AIProviderType,
+  InstanceSetting_AISettingSchema,
+  InstanceSetting_AIProviderConfigSchema,
   InstanceSetting_GeneralSettingSchema,
   InstanceSetting_MemoRelatedSettingSchema,
   InstanceSetting_NotificationSettingSchema,
@@ -39,9 +43,10 @@ import {
   IdentityProviderSchema,
   IdentityProvider_Type,
 } from "./types/proto/api/v1/idp_service_pb";
-import type { CreatePersonalAccessTokenResponse, PersonalAccessToken, User, UserSetting } from "./types/proto/api/v1/user_service_pb";
+import type { CreatePersonalAccessTokenResponse, LinkedIdentity, PersonalAccessToken, User, UserSetting } from "./types/proto/api/v1/user_service_pb";
 import {
   CreatePersonalAccessTokenResponseSchema,
+  LinkedIdentitySchema,
   PersonalAccessTokenSchema,
   UserSettingSchema,
   UserSetting_GeneralSettingSchema,
@@ -310,6 +315,31 @@ function instanceSettingFromResponse(j: Record<string, unknown>): InstanceSettin
       },
     });
   }
+  if (j.aiSetting) {
+    const raw = j.aiSetting as { providers?: Array<Record<string, unknown>> };
+    const providers = (raw.providers ?? []).map((p) =>
+      create(InstanceSetting_AIProviderConfigSchema, {
+        id: String(p.id ?? ""),
+        title: String(p.title ?? ""),
+        type: ((): InstanceSetting_AIProviderType => {
+          const t = p.type;
+          if (t === 1 || t === "OPENAI" || t === InstanceSetting_AIProviderType.OPENAI) return InstanceSetting_AIProviderType.OPENAI;
+          if (t === 2 || t === "GEMINI" || t === InstanceSetting_AIProviderType.GEMINI) return InstanceSetting_AIProviderType.GEMINI;
+          return InstanceSetting_AIProviderType.AI_PROVIDER_TYPE_UNSPECIFIED;
+        })(),
+        endpoint: String(p.endpoint ?? ""),
+        apiKeySet: Boolean(p.apiKeySet),
+        apiKeyHint: String(p.apiKeyHint ?? ""),
+      }),
+    );
+    return create(InstanceSettingSchema, {
+      name,
+      value: {
+        case: "aiSetting",
+        value: create(InstanceSetting_AISettingSchema, { providers }),
+      },
+    });
+  }
   return create(InstanceSettingSchema, { name, value: { case: undefined, value: undefined } });
 }
 
@@ -436,6 +466,16 @@ export const instanceServiceClient = {
       };
     } else if (v.case === "notificationSetting") {
       settingBody.notificationSetting = notificationToApiJson(v.value);
+    } else if (v.case === "aiSetting") {
+      settingBody.aiSetting = {
+        providers: v.value.providers.map((p) => ({
+          id: p.id,
+          title: p.title,
+          type: p.type,
+          endpoint: p.endpoint,
+          apiKey: p.apiKey,
+        })),
+      };
     } else {
       throw new ConnectError("Unsupported instance setting update", Code.InvalidArgument);
     }
@@ -730,6 +770,41 @@ export const userServiceClient = {
     });
     return { users: (j.users ?? []).map((u) => userFromJson(u)) };
   },
+  async listLinkedIdentities(req: { parent: string }): Promise<{ linkedIdentities: LinkedIdentity[] }> {
+    const u = userSeg(req.parent);
+    const j = await apiJson<{ linkedIdentities?: Record<string, unknown>[] }>(
+      `/users/${encodeURIComponent(u)}/linkedIdentities`,
+    );
+    const identities = (j.linkedIdentities ?? []).map((li) =>
+      create(LinkedIdentitySchema, {
+        name: String(li.name ?? ""),
+        idpName: String(li.idpName ?? ""),
+        externUid: String(li.externUid ?? ""),
+      }),
+    );
+    return { linkedIdentities: identities };
+  },
+  async getLinkedIdentity(req: { name: string }): Promise<LinkedIdentity> {
+    const m = req.name.match(/^users\/([^/]+)\/linkedIdentities\/(.+)$/);
+    if (!m) throw new ConnectError("invalid linked identity name", Code.InvalidArgument);
+    const j = await apiJson<Record<string, unknown>>(
+      `/users/${encodeURIComponent(m[1])}/linkedIdentities/${encodeURIComponent(m[2])}`,
+    );
+    return create(LinkedIdentitySchema, {
+      name: String(j.name ?? ""),
+      idpName: String(j.idpName ?? ""),
+      externUid: String(j.externUid ?? ""),
+    });
+  },
+  async deleteLinkedIdentity(req: { name: string }): Promise<object> {
+    const m = req.name.match(/^users\/([^/]+)\/linkedIdentities\/(.+)$/);
+    if (!m) throw new ConnectError("invalid linked identity name", Code.InvalidArgument);
+    await apiJson(
+      `/users/${encodeURIComponent(m[1])}/linkedIdentities/${encodeURIComponent(m[2])}`,
+      { method: "DELETE" },
+    );
+    return {};
+  },
 };
 
 export const shortcutServiceClient = {
@@ -777,6 +852,26 @@ export const shortcutServiceClient = {
     if (!m) throw new ConnectError("invalid shortcut name", Code.InvalidArgument);
     await apiJson(`/users/${encodeURIComponent(m[1])}/shortcuts/${encodeURIComponent(m[2])}`, { method: "DELETE" });
     return {};
+  },
+};
+
+export const aiServiceClient = {
+  async transcribe(req: {
+    providerId: string;
+    config?: { prompt?: string; language?: string };
+    audio: { content: string; filename?: string; contentType?: string };
+  }): Promise<{ text: string }> {
+    const res = await apiFetch("/ai:transcribe", {
+      method: "POST",
+      body: JSON.stringify({
+        providerId: req.providerId,
+        config: req.config,
+        audio: req.audio,
+      }),
+    });
+    await throwUnlessOk(res);
+    const j = (await readJson(res)) as { text?: string };
+    return { text: j.text ?? "" };
   },
 };
 

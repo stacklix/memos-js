@@ -14,6 +14,8 @@ interface SettingTableProps<T = Record<string, unknown>> {
   emptyMessage?: string;
   className?: string;
   getRowKey?: (row: T, index: number) => string;
+  /** `info-flow` relaxes `whitespace-nowrap` so long content can wrap. */
+  variant?: "default" | "info-flow";
 }
 
 const SettingTable = <T extends Record<string, unknown>>({
@@ -22,7 +24,12 @@ const SettingTable = <T extends Record<string, unknown>>({
   emptyMessage = "No data",
   className,
   getRowKey,
+  variant = "default",
 }: SettingTableProps<T>) => {
+  const cellBase = variant === "info-flow"
+    ? "px-3 py-3 text-sm text-muted-foreground align-top"
+    : "whitespace-nowrap px-3 py-2 text-sm text-muted-foreground";
+
   return (
     <div className={cn("w-full overflow-x-auto", className)}>
       <div className="inline-block min-w-full align-middle border border-border rounded-lg">
@@ -52,7 +59,7 @@ const SettingTable = <T extends Record<string, unknown>>({
                       const value = row[column.key as keyof T] as T[keyof T];
                       const content = column.render ? column.render(value, row) : (value as React.ReactNode);
                       return (
-                        <td key={column.key} className={cn("whitespace-nowrap px-3 py-2 text-sm text-muted-foreground", column.className)}>
+                        <td key={column.key} className={cn(cellBase, column.className)}>
                           {content}
                         </td>
                       );
