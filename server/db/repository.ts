@@ -157,6 +157,15 @@ export type DbIdentityProviderRow = {
   config: string;
 };
 
+export type DbUserIdentityRow = {
+  id: number;
+  user_id: number;
+  provider: string;
+  extern_uid: string;
+  created_ts: number;
+  updated_ts: number;
+};
+
 type SqlUserRow = {
   id: number;
   username: string;
@@ -1687,6 +1696,43 @@ export function createRepository(sql: SqlAdapter) {
         `DELETE FROM inbox WHERE id = ? AND receiver_id =
          (SELECT id FROM user WHERE username = ? AND row_status = 'NORMAL')`,
         [inboxId, username],
+      );
+      return r.changes > 0;
+    },
+
+    async listUserIdentities(userId: number): Promise<DbUserIdentityRow[]> {
+      return sql.queryAll<DbUserIdentityRow>(
+        "SELECT id, user_id, provider, extern_uid, created_ts, updated_ts FROM user_identity WHERE user_id = ?",
+        [userId],
+      );
+    },
+
+    async getUserIdentity(userId: number, provider: string): Promise<DbUserIdentityRow | null> {
+      const rows = await sql.queryAll<DbUserIdentityRow>(
+        "SELECT id, user_id, provider, extern_uid, created_ts, updated_ts FROM user_identity WHERE user_id = ? AND provider = ?",
+        [userId, provider],
+      );
+      return rows[0] ?? null;
+    },
+
+    async upsertUserIdentity(userId: number, provider: string, externUid: string): Promise<DbUserIdentityRow> {
+      await sql.execute(
+        `INSERT INTO user_identity (user_id, provider, extern_uid)
+         VALUES (?, ?, ?)
+         ON CONFLICT(user_id, provider) DO UPDATE SET extern_uid = excluded.extern_uid, updated_ts = strftime('%s', 'now')`,
+        [userId, provider, externUid],
+      );
+      const row = await sql.queryAll<DbUserIdentityRow>(
+        "SELECT id, user_id, provider, extern_uid, created_ts, updated_ts FROM user_identity WHERE user_id = ? AND provider = ?",
+        [userId, provider],
+      );
+      return row[0]!;
+    },
+
+    async deleteUserIdentity(userId: number, provider: string): Promise<boolean> {
+      const r = await sql.execute(
+        "DELETE FROM user_identity WHERE user_id = ? AND provider = ?",
+        [userId, provider],
       );
       return r.changes > 0;
     },

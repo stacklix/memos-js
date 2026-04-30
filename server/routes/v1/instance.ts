@@ -11,6 +11,11 @@ import {
 import {
   parseInstanceNotificationSetting,
 } from "../../lib/instance-notification-setting.js";
+import {
+  parseAISettingFromRaw,
+  aiProviderTypeToNumber,
+  maskApiKey,
+} from "../../lib/instance-ai-setting.js";
 
 function toNotificationApiResponse(setting: ReturnType<typeof parseInstanceNotificationSetting>) {
   return {
@@ -153,6 +158,28 @@ export function createInstanceRoutes(deps: AppDeps) {
         notificationSetting: toNotificationApiResponse(notificationSetting),
       });
     }
+    if (key === "AI") {
+      const auth = c.get("auth");
+      if (!auth) return jsonError(c, GrpcCode.UNAUTHENTICATED, "permission denied");
+      if (auth.role !== "ADMIN") {
+        return jsonError(c, GrpcCode.PERMISSION_DENIED, "permission denied");
+      }
+      const aiSetting = parseAISettingFromRaw(await repo.getInstanceSettingRaw("AI"));
+      return c.json({
+        name: `instance/settings/${key}`,
+        aiSetting: {
+          providers: aiSetting.providers.map((p) => ({
+            id: p.id,
+            title: p.title,
+            type: aiProviderTypeToNumber(p.type),
+            endpoint: p.endpoint,
+            // apiKey is write-only — never returned
+            apiKeySet: Boolean(p.apiKey),
+            apiKeyHint: p.apiKey ? maskApiKey(p.apiKey) : "",
+          })),
+        },
+      });
+    }
     return jsonError(c, GrpcCode.NOT_FOUND, "setting not found");
   });
 
@@ -164,7 +191,7 @@ export function createInstanceRoutes(deps: AppDeps) {
     const pathname = new URL(c.req.url).pathname;
     const key = pathname.split("/instance/settings/")[1]?.split("/")[0];
     if (!key) return jsonError(c, GrpcCode.INVALID_ARGUMENT, "invalid setting name");
-    if (!["GENERAL", "MEMO_RELATED", "TAGS", "STORAGE", "NOTIFICATION"].includes(key)) {
+    if (!["GENERAL", "MEMO_RELATED", "TAGS", "STORAGE", "NOTIFICATION", "AI"].includes(key)) {
       return jsonError(c, GrpcCode.UNIMPLEMENTED, "this setting cannot be updated via API yet");
     }
     type Body = {
@@ -216,6 +243,15 @@ export function createInstanceRoutes(deps: AppDeps) {
             useTls?: boolean;
             useSsl?: boolean;
           };
+        };
+        aiSetting?: {
+          providers?: Array<{
+            id?: string;
+            title?: string;
+            type?: unknown;
+            endpoint?: string;
+            apiKey?: string;
+          }>;
         };
       };
     };
@@ -397,6 +433,55 @@ export function createInstanceRoutes(deps: AppDeps) {
       return c.json({
         name: `instance/settings/NOTIFICATION`,
         notificationSetting: toNotificationApiResponse(next),
+      });
+    }
+
+    if (key === "AI") {
+      const as = body.setting?.aiSetting;
+      if (!as || typeof as !== "object") {
+        return jsonError(c, GrpcCode.INVALID_ARGUMENT, "setting.aiSetting required");
+      }
+      const current = parseAISettingFromRaw(await repo.getInstanceSettingRaw("AI"));
+      const incoming = Array.isArray(as.providers) ? as.providers : [];
+
+      // Merge: keep stored apiKey if the incoming entry omits it (empty string = keep)
+      const currentById = new Map(current.providers.map((p) => [p.id, p]));
+      const nextProviders = incoming
+        .filter((p) => typeof p.id === "string" && p.id.trim() !== "")
+        .map((p) => {
+          const id = String(p.id!).trim();
+          const stored = currentById.get(id);
+          const apiKey =
+            typeof p.apiKey === "string" && p.apiKey !== ""
+              ? p.apiKey
+              : (stored?.apiKey ?? "");
+          const typeStr =
+            p.type === 1 || p.type === "OPENAI" ? "OPENAI" :
+            p.type === 2 || p.type === "GEMINI" ? "GEMINI" :
+            (stored?.type ?? "OPENAI");
+          return {
+            id,
+            title: typeof p.title === "string" ? p.title.trim() : (stored?.title ?? ""),
+            type: typeStr,
+            endpoint: typeof p.endpoint === "string" ? p.endpoint.trim() : (stored?.endpoint ?? ""),
+            apiKey,
+          };
+        });
+
+      await repo.upsertInstanceSettingRaw("AI", JSON.stringify({ providers: nextProviders }));
+      return c.json({
+        name: `instance/settings/AI`,
+        aiSetting: {
+          providers: nextProviders.map((p) => ({
+            id: p.id,
+            title: p.title,
+            type: aiProviderTypeToNumber(p.type),
+            endpoint: p.endpoint,
+            // apiKey is write-only
+            apiKeySet: Boolean(p.apiKey),
+            apiKeyHint: p.apiKey ? maskApiKey(p.apiKey) : "",
+          })),
+        },
       });
     }
 
