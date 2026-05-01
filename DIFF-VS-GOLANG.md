@@ -69,10 +69,6 @@ CREATE INDEX idx_user_identity_user_id ON user_identity(user_id);
 | Method | Path | Notes |
 | --- | --- | --- |
 | `GET` | `/api/v1/sse` | SSE endpoint exists in `master` but only for **Node.js** (`enableSSE: true`). CF Worker does not mount it (streaming incompatible). `golang` has it unconditionally. |
-| `POST` | `/api/v1/ai:transcribe` | AI audio transcription via instance AI provider. Requires `AIService` and `instance/settings/AI` configuration. **Not implemented** in `master`. |
-| `GET` | `/api/v1/users/{user}/linkedIdentities` | List linked SSO identities for a user. Requires the `user_identity` table (see §1.2). **Not implemented** in `master`. |
-| `GET` | `/api/v1/users/{user}/linkedIdentities/{linkedIdentity}` | Get a specific linked SSO identity. **Not implemented** in `master`. |
-| `DELETE` | `/api/v1/users/{user}/linkedIdentities/{linkedIdentity}` | Unlink a specific SSO identity. **Not implemented** in `master`. |
 
 > **Note:** `GET /api/v1/users/{user}:getStats` **is implemented** in `master` (handled inside the wildcard `GET /users/:username` handler via suffix matching), despite not being a named route.
 
@@ -88,7 +84,7 @@ CREATE INDEX idx_user_identity_user_id ON user_identity(user_id);
 | Module | `master` behavior | `golang` behavior |
 | --- | --- | --- |
 | **Instance `STORAGE` setting** | Returns extra `supportedStorageTypes` (dynamic, includes `R2`) | Fixed enum `DATABASE/LOCAL/S3`; no dynamic field — **excluded by design** |
-| **Instance `AI` setting** | `instance/settings/AI` key is **not persisted** (no backend handler) | Full `AIService` + AI instance settings (`InstanceSetting_Key.AI`) |
+| **Instance `AI` setting** | `instance/settings/AI` persisted; full `AIService` + AI provider config; `POST /api/v1/ai:transcribe` implemented (aligned) | Full `AIService` + AI instance settings (`InstanceSetting_Key.AI`) |
 | **Memo `filter` / CEL** | Subset implementation in `server/lib/memo-filter.ts` (covers common patterns used by the web client: creator, visibility, tag, pinned, time range, content.contains) | Full CEL compilation semantics |
 | **API transport** | `web/src/connect.ts` implements a **custom REST client** (~1110 lines) that translates gRPC-style service calls into plain JSON REST calls | `web/src/connect.ts` uses **Connect gRPC/protocol transport** via `@connectrpc/connect-web` (~203 lines); native binary+JSON Connect protocol |
 
@@ -109,6 +105,10 @@ CREATE INDEX idx_user_identity_user_id ON user_identity(user_id);
 | **`GET /memos` `showDeleted` param** | ✅ `showDeleted=true` (or `show_deleted=true`) sets state to ARCHIVED — aligned with golang |
 | **`PATCH /users/{user}/settings/{setting}` updateMask** | ✅ Already enforced — rejects empty updateMask |
 | **MCP endpoint** | ✅ Implemented at `POST/GET/DELETE /mcp` (Streamable HTTP transport) in `server/routes/mcp.ts` |
+| **`user_identity` table** | ✅ Added in `migrations/0002_user_identity.sql` |
+| **`POST /api/v1/ai:transcribe`** | ✅ Implemented in `server/routes/v1/ai.ts`; reads AI provider from `instance/settings/AI` |
+| **`GET/DELETE /api/v1/users/{user}/linkedIdentities[/{id}]`** | ✅ Implemented in `server/routes/v1/users.ts` |
+| **Instance `AI` setting persistence** | ✅ `instance/settings/AI` key persisted and served via `server/lib/instance-ai-setting.ts` |
 
 ---
 
@@ -143,22 +143,26 @@ All 14 pages exist in both branches. The following pages have notable difference
 
 ### 3.3 Components present in `golang` but NOT in `master`
 
-| Component | Notes |
+All `golang`-only components have been added to `master`:
+
+| Component | Status |
 | --- | --- |
-| `Settings/AISection.tsx` | AI provider configuration panel (maps to `instance/settings/AI`); absent in `master` |
-| `Settings/LinkedIdentitySection.tsx` | Lists and manages linked SSO identities per user; depends on `linkedIdentities` API (§2.1) |
-| `Settings/InfoChip.tsx` | Reusable badge/chip used by `LinkedIdentitySection` and `SSOSection` |
-| `router/guards.tsx` | Route guard components: `LandingRoute`, `RequireAuthRoute`, `RequireGuestRoute`; `golang` extracts them into a dedicated file and uses nested `<Outlet>` guards; `master` applies them inline in the router config |
-| `helpers/sso-display.ts` | Utility functions for SSO provider display (`getIdentityProviderTypeLabel`, `getOAuth2SummaryItems`, etc.); used by the enhanced `SSOSection` |
+| `Settings/AISection.tsx` | ✅ Added — AI provider configuration panel (maps to `instance/settings/AI`) |
+| `Settings/LinkedIdentitySection.tsx` | ✅ Added — lists and manages linked SSO identities per user |
+| `Settings/InfoChip.tsx` | ✅ Added — reusable badge/chip used by `LinkedIdentitySection` and `SSOSection` |
+| `router/guards.tsx` | ✅ Added — `LandingRoute`, `RequireAuthRoute`, `RequireGuestRoute` guard components |
+| `helpers/sso-display.ts` | ✅ Added — SSO provider display utilities |
 
 ### 3.4 Components that differ between branches
 
-| Component | Difference |
+All previously diverged components have been aligned with `golang`:
+
+| Component | Status |
 | --- | --- |
-| `Settings/SSOSection.tsx` | `golang` imports `InfoChip`, `sso-display` utilities, and uses structured row data (`IdentityProviderRow`) with error handling; `master` version is simpler |
-| `Settings/MyAccountSection.tsx` | `golang` adds **delete-account** functionality and renders `LinkedIdentitySection`; `master` shows only PAT + password change |
-| `router/index.tsx` | `golang` exports `routeConfig` array for testing, uses `RequireAuthRoute`/`RequireGuestRoute` guards, and eagerly imports `Home`; `master` uses lazy imports for all routes without explicit auth guards |
-| `web/src/App.tsx` | `golang` adds `cleanupExpiredOAuthState()` on mount; `master` does not |
+| `Settings/SSOSection.tsx` | ✅ Aligned — imports `InfoChip`, `sso-display` utilities, uses `IdentityProviderRow` with error handling |
+| `Settings/MyAccountSection.tsx` | ✅ Aligned — adds delete-account functionality and renders `LinkedIdentitySection` |
+| `router/index.tsx` | ✅ Aligned — uses `RequireAuthRoute`/`RequireGuestRoute` guards; exports `routeConfig` |
+| `web/src/App.tsx` | ✅ Aligned — adds `cleanupExpiredOAuthState()` on mount |
 
 ### 3.5 Realtime refresh (SSE)
 

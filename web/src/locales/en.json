@@ -114,7 +114,8 @@
     "username": "Username",
     "version": "Version",
     "visibility": "Visibility",
-    "yourself": "Yourself"
+    "yourself": "Yourself",
+    "unlink": "Unlink"
   },
   "editor": {
     "add-your-comment-here": "Add your comment here...",
@@ -335,7 +336,11 @@
       "reset-api": "Reset API",
       "title": "Account Information",
       "update-information": "Update Information",
-      "username-note": "Used to sign in"
+      "username-note": "Used to sign in",
+      "danger-area": "Danger area",
+      "danger-area-description": "Irreversible account actions live here. Review them carefully before continuing.",
+      "delete-account": "Delete account",
+      "delete-account-description": "Permanently remove this account and all associated access from this instance. This action cannot be undone."
     },
     "instance": {
       "disallow-change-nickname": "Disallow changing nickname",
@@ -410,7 +415,30 @@
       "template": "Template",
       "token-endpoint": "Token endpoint",
       "update-sso": "Update SSO",
-      "user-endpoint": "User endpoint"
+      "user-endpoint": "User endpoint",
+      "account": "Account",
+      "accounts-description": "Review each identity provider, see the current link state, and connect or disconnect external identities from this account.",
+      "accounts-title": "SSO Accounts",
+      "configuration": "Configuration",
+      "configuration-summary-description": "Show the essentials that help identify and audit a provider without exposing the full configuration inline.",
+      "endpoints": "Endpoints",
+      "extern-uid": "External ID",
+      "extern-uid-description": "This is the provider-side identity currently linked to your account.",
+      "filter-disabled": "Disabled",
+      "linked": "Linked",
+      "mapping": "Mapping",
+      "mapping-avatar-short": "avatar",
+      "mapping-display-name-short": "name",
+      "mapping-email-short": "email",
+      "mapping-identifier-short": "id",
+      "mapping-none": "Not configured",
+      "not-linked": "Not linked",
+      "not-linked-description": "No external identity is linked yet. You can connect this provider to sign in with it later.",
+      "provider": "Provider",
+      "provider-uid": "UID",
+      "scope-count_one": "{{count}} scope",
+      "scope-count_other": "{{count}} scopes",
+      "unlink-success": "Unlinked {{name}}."
     },
     "storage": {
       "accesskey": "Access key",
@@ -509,6 +537,33 @@
       "tag-pattern-hint": "Tag name or regex pattern (e.g. project/.* matches all project/ tags)",
       "invalid-regex": "Invalid or unsafe regex pattern.",
       "using-default-color": "Using default color."
+    },
+    "ai": {
+      "add-provider": "Add provider",
+      "api-key": "API key",
+      "api-key-required": "API key is required.",
+      "byok-description": "Connect OpenAI or Gemini with an API key from your own account. Memos calls the provider directly from this server.",
+      "byok-key-note": "Use a key from your provider account; Memos does not bundle shared AI credentials.",
+      "byok-label": "BYOK",
+      "byok-model-note": "Memos selects supported models for features like audio transcription.",
+      "byok-storage-note": "Keys stay on this instance and are masked when settings are loaded.",
+      "byok-title": "Use your own AI account",
+      "configured": "Configured",
+      "current-key": "Current key: {{key}}",
+      "default-endpoint": "Default endpoint",
+      "delete-provider": "Delete AI provider `{{title}}`?",
+      "description": "Provider keys are supplied by the instance owner and used by server-side AI features.",
+      "dialog-description": "Add a key from your own provider account. Memos uses built-in models for each provider; leave the API key blank while editing to keep the stored key.",
+      "edit-provider": "Edit provider",
+      "endpoint": "Endpoint",
+      "endpoint-hint": "Leave empty to use the official provider endpoint.",
+      "keep-api-key": "Leave blank to keep the existing key",
+      "label": "AI",
+      "no-providers": "No AI providers configured.",
+      "provider-title": "Provider name",
+      "provider-title-required": "Provider name is required.",
+      "provider-type": "Provider type",
+      "providers": "Providers"
     }
   },
   "tag": {

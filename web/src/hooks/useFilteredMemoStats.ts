@@ -55,9 +55,9 @@ export const useFilteredMemoStats = (options: UseFilteredMemoStatsOptions = {}):
       activityStats = countBy(displayDates);
     } else if (userName && userStats) {
       // home/profile: use backend per-user stats
-      if (userStats.memoDisplayTimestamps && userStats.memoDisplayTimestamps.length > 0) {
+      if (userStats.memoCreatedTimestamps && userStats.memoCreatedTimestamps.length > 0) {
         activityStats = countBy(
-          userStats.memoDisplayTimestamps
+          userStats.memoCreatedTimestamps
             .map((ts) => (ts ? timestampDate(ts) : undefined))
             .filter((date): date is Date => date !== undefined)
             .map(toDateString),

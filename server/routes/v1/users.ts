@@ -1005,6 +1005,63 @@ export function createUserRoutes(deps: AppDeps) {
     return c.json({});
   });
 
+  // Linked identities (SSO) endpoints
+  forUser.get("/linkedIdentities", async (c) => {
+    const auth = c.get("auth");
+    if (!auth) return jsonError(c, GrpcCode.UNAUTHENTICATED, "permission denied");
+    const username = c.req.param("username")!;
+    if (username.includes(":")) return jsonError(c, GrpcCode.INVALID_ARGUMENT, "invalid user resource");
+    if (auth.username !== username && auth.role !== "ADMIN") {
+      return jsonError(c, GrpcCode.PERMISSION_DENIED, "permission denied");
+    }
+    const userId = await repo.getUserInternalId(username);
+    if (userId === null) return jsonError(c, GrpcCode.NOT_FOUND, "user not found");
+    const rows = await repo.listUserIdentities(userId);
+    return c.json({
+      linkedIdentities: rows.map((row) => ({
+        name: `users/${username}/linkedIdentities/${encodeURIComponent(row.provider)}`,
+        idpName: `identity-providers/${encodeURIComponent(row.provider)}`,
+        externUid: row.extern_uid,
+      })),
+    });
+  });
+
+  forUser.get("/linkedIdentities/:provider", async (c) => {
+    const auth = c.get("auth");
+    if (!auth) return jsonError(c, GrpcCode.UNAUTHENTICATED, "permission denied");
+    const username = c.req.param("username")!;
+    if (username.includes(":")) return jsonError(c, GrpcCode.INVALID_ARGUMENT, "invalid user resource");
+    if (auth.username !== username && auth.role !== "ADMIN") {
+      return jsonError(c, GrpcCode.PERMISSION_DENIED, "permission denied");
+    }
+    const provider = decodeURIComponent(c.req.param("provider")!);
+    const userId = await repo.getUserInternalId(username);
+    if (userId === null) return jsonError(c, GrpcCode.NOT_FOUND, "user not found");
+    const row = await repo.getUserIdentity(userId, provider);
+    if (!row) return jsonError(c, GrpcCode.NOT_FOUND, "linked identity not found");
+    return c.json({
+      name: `users/${username}/linkedIdentities/${encodeURIComponent(row.provider)}`,
+      idpName: `identity-providers/${encodeURIComponent(row.provider)}`,
+      externUid: row.extern_uid,
+    });
+  });
+
+  forUser.delete("/linkedIdentities/:provider", async (c) => {
+    const auth = c.get("auth");
+    if (!auth) return jsonError(c, GrpcCode.UNAUTHENTICATED, "permission denied");
+    const username = c.req.param("username")!;
+    if (username.includes(":")) return jsonError(c, GrpcCode.INVALID_ARGUMENT, "invalid user resource");
+    if (auth.username !== username && auth.role !== "ADMIN") {
+      return jsonError(c, GrpcCode.PERMISSION_DENIED, "permission denied");
+    }
+    const provider = decodeURIComponent(c.req.param("provider")!);
+    const userId = await repo.getUserInternalId(username);
+    if (userId === null) return jsonError(c, GrpcCode.NOT_FOUND, "user not found");
+    const ok = await repo.deleteUserIdentity(userId, provider);
+    if (!ok) return jsonError(c, GrpcCode.NOT_FOUND, "linked identity not found");
+    return c.json({});
+  });
+
   r.route("/:username", forUser);
 
   return r;

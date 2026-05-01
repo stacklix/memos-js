@@ -5,6 +5,7 @@ import { MemoFilterProvider } from "./contexts/MemoFilterContext";
 import useNavigateTo from "./hooks/useNavigateTo";
 import { useUserLocale } from "./hooks/useUserLocale";
 import { useUserTheme } from "./hooks/useUserTheme";
+import { cleanupExpiredOAuthState } from "./utils/oauth";
 const App = () => {
   const navigateTo = useNavigateTo();
   const { profile: instanceProfile, profileLoaded, generalSetting: instanceGeneralSetting } = useInstance();
@@ -12,6 +13,11 @@ const App = () => {
   // Apply user preferences reactively
   useUserLocale();
   useUserTheme();
+
+  // Clean up stale / expired OAuth state entries on mount to prevent leakage.
+  useEffect(() => {
+    cleanupExpiredOAuthState();
+  }, []);
 
   // Redirect to sign up page if instance not initialized (no admin account exists yet).
   // Guard with profileLoaded so a fetch failure doesn't incorrectly trigger the redirect.
