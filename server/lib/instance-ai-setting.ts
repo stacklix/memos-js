@@ -36,6 +36,6 @@ export function aiProviderTypeToNumber(type: unknown): number {
 
 export function maskApiKey(key: string): string {
   if (!key) return "";
-  if (key.length <= 8) return "*".repeat(key.length);
-  return key.slice(0, 4) + "*".repeat(Math.min(key.length - 8, 8)) + key.slice(-4);
+  if (key.length <= 8) return "...";
+  return key.slice(0, 4) + "..." + key.slice(-4);
 }
