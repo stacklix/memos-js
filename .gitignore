@@ -1,6 +1,7 @@
 node_modules/
 data/
 dist/
+coverage/
 .wrangler/
 .dev.vars
 wrangler.local.jsonc

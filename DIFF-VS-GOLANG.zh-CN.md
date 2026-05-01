@@ -69,10 +69,6 @@ CREATE INDEX idx_user_identity_user_id ON user_identity(user_id);
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | `GET` | `/api/v1/sse` | SSE 接口在 `master` 中**仅 Node.js** 可用（`enableSSE: true`）；CF Worker 不挂载（流式传输不兼容）。`golang` 无条件提供。 |
-| `POST` | `/api/v1/ai:transcribe` | 通过实例 AI 提供商转录音频。需要 `AIService` 及 `instance/settings/AI` 配置。`master` **未实现**。 |
-| `GET` | `/api/v1/users/{user}/linkedIdentities` | 列出某用户已关联的 SSO 身份。依赖 `user_identity` 表（见 §1.2）。`master` **未实现**。 |
-| `GET` | `/api/v1/users/{user}/linkedIdentities/{linkedIdentity}` | 获取某条已关联 SSO 身份详情。`master` **未实现**。 |
-| `DELETE` | `/api/v1/users/{user}/linkedIdentities/{linkedIdentity}` | 解除某条 SSO 身份关联。`master` **未实现**。 |
 
 > **注：** `GET /api/v1/users/{user}:getStats` **已在 `master` 中实现**（通过通配路由 `GET /users/:username` 按后缀匹配分发），只是未作为独立命名路由注册。
 
@@ -88,7 +84,7 @@ CREATE INDEX idx_user_identity_user_id ON user_identity(user_id);
 | 模块 | `master` 行为 | `golang` 行为 |
 | --- | --- | --- |
 | **Instance `STORAGE` 设置** | 额外返回 `supportedStorageTypes`（动态，含 `R2`） | 固定枚举 `DATABASE/LOCAL/S3`，无动态字段 — **设计排除** |
-| **Instance `AI` 设置** | `instance/settings/AI` 键**不持久化**（无对应后端处理逻辑） | 完整 `AIService` + AI 实例设置（`InstanceSetting_Key.AI`） |
+| **Instance `AI` 设置** | `instance/settings/AI` 键已持久化；完整 `AIService` + AI 提供商配置；`POST /api/v1/ai:transcribe` 已实现（已对齐） | 完整 `AIService` + AI 实例设置（`InstanceSetting_Key.AI`） |
 | **Memo `filter` / CEL** | `server/lib/memo-filter.ts` 子集实现（覆盖 Web 客户端常用模式：creator、visibility、tag、pinned、时间范围、content.contains） | 完整 CEL 编译语义 |
 | **API 传输层** | `web/src/connect.ts` 实现**自定义 REST 客户端**（约 1110 行），将 gRPC 风格的服务调用翻译为普通 JSON REST 请求 | `web/src/connect.ts` 通过 `@connectrpc/connect-web` 使用 **Connect gRPC/协议传输**（约 203 行）；原生 binary+JSON Connect 协议 |
 
@@ -109,6 +105,10 @@ CREATE INDEX idx_user_identity_user_id ON user_identity(user_id);
 | **`GET /memos` `showDeleted` 参数** | ✅ `showDeleted=true`（或 `show_deleted=true`）将 state 设为 ARCHIVED — 与 golang 对齐 |
 | **`PATCH /users/{user}/settings/{setting}` updateMask** | ✅ 已强制校验 — 空 updateMask 会返回错误 |
 | **MCP 接口** | ✅ 已在 `server/routes/mcp.ts` 实现，挂载于 `POST/GET/DELETE /mcp`（Streamable HTTP 传输） |
+| **`user_identity` 表** | ✅ 已通过 `migrations/0002_user_identity.sql` 添加 |
+| **`POST /api/v1/ai:transcribe`** | ✅ 已在 `server/routes/v1/ai.ts` 实现；读取 `instance/settings/AI` 中的 AI 提供商配置 |
+| **`GET/DELETE /api/v1/users/{user}/linkedIdentities[/{id}]`** | ✅ 已在 `server/routes/v1/users.ts` 实现 |
+| **Instance `AI` 设置持久化** | ✅ `instance/settings/AI` 键已持久化并通过 `server/lib/instance-ai-setting.ts` 提供服务 |
 
 ---
 
@@ -143,22 +143,26 @@ CREATE INDEX idx_user_identity_user_id ON user_identity(user_id);
 
 ### 3.3 仅 `golang` 存在的组件（`master` 缺少）
 
-| 组件 | 说明 |
+所有 `golang` 独有组件均已添加至 `master`：
+
+| 组件 | 状态 |
 | --- | --- |
-| `Settings/AISection.tsx` | AI 提供商配置面板（对应 `instance/settings/AI`）；`master` 无此组件 |
-| `Settings/LinkedIdentitySection.tsx` | 列出并管理用户已关联的 SSO 身份；依赖 `linkedIdentities` API（见 §2.1） |
-| `Settings/InfoChip.tsx` | 可复用的 badge/chip 组件，被 `LinkedIdentitySection` 和 `SSOSection` 使用 |
-| `router/guards.tsx` | 路由守卫组件：`LandingRoute`、`RequireAuthRoute`、`RequireGuestRoute`；`golang` 将其提取为独立文件并通过嵌套 `<Outlet>` 方式使用；`master` 将类似逻辑内联在路由配置中 |
-| `helpers/sso-display.ts` | SSO 提供商展示工具函数（`getIdentityProviderTypeLabel`、`getOAuth2SummaryItems` 等）；由增强版 `SSOSection` 使用 |
+| `Settings/AISection.tsx` | ✅ 已添加 — AI 提供商配置面板（对应 `instance/settings/AI`） |
+| `Settings/LinkedIdentitySection.tsx` | ✅ 已添加 — 列出并管理用户已关联的 SSO 身份 |
+| `Settings/InfoChip.tsx` | ✅ 已添加 — 可复用 badge/chip 组件 |
+| `router/guards.tsx` | ✅ 已添加 — `LandingRoute`、`RequireAuthRoute`、`RequireGuestRoute` 路由守卫组件 |
+| `helpers/sso-display.ts` | ✅ 已添加 — SSO 提供商展示工具函数 |
 
 ### 3.4 两分支之间有差异的组件
 
-| 组件 | 差异说明 |
+所有此前存在差异的组件均已与 `golang` 对齐：
+
+| 组件 | 状态 |
 | --- | --- |
-| `Settings/SSOSection.tsx` | `golang` 版本引入 `InfoChip`、`sso-display` 工具函数，使用结构化行数据（`IdentityProviderRow`）并增加错误处理；`master` 版本较简单 |
-| `Settings/MyAccountSection.tsx` | `golang` 新增**删除账号**功能并渲染 `LinkedIdentitySection`；`master` 只展示 PAT 和修改密码 |
-| `router/index.tsx` | `golang` 导出 `routeConfig` 数组以供测试、使用 `RequireAuthRoute`/`RequireGuestRoute` 守卫，并直接（非懒加载）引入 `Home`；`master` 对所有路由使用懒加载，无显式认证守卫 |
-| `web/src/App.tsx` | `golang` 在挂载时调用 `cleanupExpiredOAuthState()`；`master` 无此逻辑 |
+| `Settings/SSOSection.tsx` | ✅ 已对齐 — 引入 `InfoChip`、`sso-display` 工具函数，使用 `IdentityProviderRow` 并增加错误处理 |
+| `Settings/MyAccountSection.tsx` | ✅ 已对齐 — 新增删除账号功能并渲染 `LinkedIdentitySection` |
+| `router/index.tsx` | ✅ 已对齐 — 使用 `RequireAuthRoute`/`RequireGuestRoute` 守卫；导出 `routeConfig` |
+| `web/src/App.tsx` | ✅ 已对齐 — 在挂载时调用 `cleanupExpiredOAuthState()` |
 
 ### 3.5 实时刷新（SSE）
 

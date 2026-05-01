@@ -12,8 +12,6 @@ import { redirectOnAuthFailure } from "./utils/auth-redirect";
 import type {
   InstanceProfile,
   InstanceSetting,
-  InstanceSetting_AISetting,
-  InstanceSetting_StorageSetting_StorageType,
   InstanceSetting_MemoRelatedSetting,
   InstanceSetting_NotificationSetting,
   InstanceSetting_TagsSetting,
@@ -145,10 +143,6 @@ export async function refreshAccessToken(): Promise<void> {
   return tokenRefreshManager.refresh(doRefreshAccessToken);
 }
 
-function shouldRetryUnauthenticated(error: unknown, isRetry: boolean): boolean {
-  return error instanceof ConnectError && error.code === Code.Unauthenticated && !isRetry;
-}
-
 async function refreshAndGetAccessToken(): Promise<string> {
   await refreshAccessToken();
   const token = getAccessToken();
@@ -237,7 +231,6 @@ function tagsSettingToApiJson(v: InstanceSetting_TagsSetting): Record<string, un
 
 function memoRelatedToApiJson(v: InstanceSetting_MemoRelatedSetting): Record<string, unknown> {
   return {
-    displayWithUpdateTime: v.displayWithUpdateTime,
     contentLengthLimit: v.contentLengthLimit,
     enableDoubleClickEdit: v.enableDoubleClickEdit,
     reactions: [...v.reactions],
