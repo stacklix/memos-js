@@ -4,7 +4,7 @@
     "noEmit": false,
     "outDir": "dist/server",
     "rootDir": "server",
-    "types": ["node"]
+    "types": ["node", "@cloudflare/workers-types"]
   },
   "include": ["server/**/*.ts"],
   "exclude": [
