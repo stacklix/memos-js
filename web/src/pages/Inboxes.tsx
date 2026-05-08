@@ -4,6 +4,7 @@ import { ArchiveIcon, BellIcon, InboxIcon } from "lucide-react";
 import { useState } from "react";
 import Empty from "@/components/Empty";
 import MemoCommentMessage from "@/components/Inbox/MemoCommentMessage";
+import MemoMentionMessage from "@/components/Inbox/MemoMentionMessage";
 import MobileHeader from "@/components/MobileHeader";
 import useMediaQuery from "@/hooks/useMediaQuery";
 import { useNotifications } from "@/hooks/useUserQueries";
@@ -19,7 +20,7 @@ const Inboxes = () => {
   // Fetch notifications with React Query
   const { data: fetchedNotifications = [] } = useNotifications();
 
-  const allNotifications = sortBy(fetchedNotifications, (notification: UserNotification) => {
+  const allNotifications: UserNotification[] = sortBy(fetchedNotifications, (notification: UserNotification) => {
     return -((notification.createTime ? timestampDate(notification.createTime) : undefined)?.getTime() || 0);
   });
 
@@ -107,6 +108,9 @@ const Inboxes = () => {
                 {notifications.map((notification: UserNotification) => {
                   if (notification.type === UserNotification_Type.MEMO_COMMENT) {
                     return <MemoCommentMessage key={notification.name} notification={notification} />;
+                  }
+                  if (notification.type === UserNotification_Type.MEMO_MENTION) {
+                    return <MemoMentionMessage key={notification.name} notification={notification} />;
                   }
                   return null;
                 })}

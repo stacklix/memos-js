@@ -3,12 +3,16 @@
  * service client names so hooks and components stay unchanged.
  */
 import { create } from "@bufbuild/protobuf";
-import { Code, ConnectError } from "@connectrpc/connect";
 import type { FieldMask } from "@bufbuild/protobuf/wkt";
 import { timestampDate, timestampFromDate } from "@bufbuild/protobuf/wkt";
+import { Code, ConnectError } from "@connectrpc/connect";
 import { getAccessToken, hasStoredToken, isTokenExpired, REQUEST_TOKEN_EXPIRY_BUFFER_MS, setAccessToken } from "./auth-state";
 import { memoFromJson, userFromJson, userStatsFromJson } from "./lib/proto-adapters";
-import { redirectOnAuthFailure } from "./utils/auth-redirect";
+import type { Attachment } from "./types/proto/api/v1/attachment_service_pb";
+import { AttachmentSchema } from "./types/proto/api/v1/attachment_service_pb";
+import { State } from "./types/proto/api/v1/common_pb";
+import type { IdentityProvider } from "./types/proto/api/v1/idp_service_pb";
+import { IdentityProvider_Type, IdentityProviderSchema } from "./types/proto/api/v1/idp_service_pb";
 import type {
   InstanceProfile,
   InstanceSetting,
@@ -18,38 +22,45 @@ import type {
 } from "./types/proto/api/v1/instance_service_pb";
 import {
   InstanceProfileSchema,
-  InstanceSettingSchema,
+  InstanceSetting_AIProviderConfigSchema,
   InstanceSetting_AIProviderType,
   InstanceSetting_AISettingSchema,
-  InstanceSetting_AIProviderConfigSchema,
   InstanceSetting_GeneralSettingSchema,
   InstanceSetting_MemoRelatedSettingSchema,
   InstanceSetting_NotificationSettingSchema,
   InstanceSetting_StorageSetting_StorageType,
   InstanceSetting_StorageSettingSchema,
   InstanceSetting_TagsSettingSchema,
+  InstanceSettingSchema,
 } from "./types/proto/api/v1/instance_service_pb";
-import { State } from "./types/proto/api/v1/common_pb";
-import type { Memo, MemoShare, MemoRelation, Reaction } from "./types/proto/api/v1/memo_service_pb";
-import { MemoShareSchema, MemoRelationSchema, ReactionSchema } from "./types/proto/api/v1/memo_service_pb";
-import type { Attachment } from "./types/proto/api/v1/attachment_service_pb";
-import { AttachmentSchema } from "./types/proto/api/v1/attachment_service_pb";
+import type { Memo, MemoRelation, MemoShare, Reaction } from "./types/proto/api/v1/memo_service_pb";
+import { MemoRelationSchema, MemoShareSchema, ReactionSchema } from "./types/proto/api/v1/memo_service_pb";
 import type { Shortcut } from "./types/proto/api/v1/shortcut_service_pb";
 import { ShortcutSchema } from "./types/proto/api/v1/shortcut_service_pb";
-import type { IdentityProvider } from "./types/proto/api/v1/idp_service_pb";
-import {
-  IdentityProviderSchema,
-  IdentityProvider_Type,
-} from "./types/proto/api/v1/idp_service_pb";
-import type { CreatePersonalAccessTokenResponse, LinkedIdentity, PersonalAccessToken, User, UserSetting } from "./types/proto/api/v1/user_service_pb";
+import type {
+  CreatePersonalAccessTokenResponse,
+  LinkedIdentity,
+  PersonalAccessToken,
+  User,
+  UserNotification,
+  UserSetting,
+  UserWebhook,
+} from "./types/proto/api/v1/user_service_pb";
 import {
   CreatePersonalAccessTokenResponseSchema,
   LinkedIdentitySchema,
   PersonalAccessTokenSchema,
-  UserSettingSchema,
+  UserNotification_MemoCommentPayloadSchema,
+  UserNotification_MemoMentionPayloadSchema,
+  UserNotification_Status,
+  UserNotification_Type,
+  UserNotificationSchema,
   UserSetting_GeneralSettingSchema,
   UserSetting_WebhooksSettingSchema,
+  UserSettingSchema,
+  UserWebhookSchema,
 } from "./types/proto/api/v1/user_service_pb";
+import { redirectOnAuthFailure } from "./utils/auth-redirect";
 
 const API = "/api/v1";
 const RETRY_HEADER = "X-Retry";
@@ -122,8 +133,7 @@ const tokenRefreshManager = (() => {
   };
 })();
 
-const fetchWithCredentials: typeof globalThis.fetch = (input, init) =>
-  globalThis.fetch(input, { ...init, credentials: "include" });
+const fetchWithCredentials: typeof globalThis.fetch = (input, init) => globalThis.fetch(input, { ...init, credentials: "include" });
 
 async function doRefreshAccessToken(): Promise<void> {
   const res = await fetchWithCredentials(`${window.location.origin}${API}/auth/refresh`, {
@@ -392,6 +402,63 @@ function attachmentFromJson(j: Record<string, unknown>): Attachment {
   });
 }
 
+function notificationStatusFromJson(raw: unknown): UserNotification_Status {
+  if (raw === UserNotification_Status.UNREAD || raw === 1 || raw === "UNREAD") return UserNotification_Status.UNREAD;
+  if (raw === UserNotification_Status.ARCHIVED || raw === 2 || raw === "ARCHIVED") return UserNotification_Status.ARCHIVED;
+  return UserNotification_Status.STATUS_UNSPECIFIED;
+}
+
+function notificationTypeFromJson(raw: unknown): UserNotification_Type {
+  if (raw === UserNotification_Type.MEMO_COMMENT || raw === 1 || raw === "MEMO_COMMENT") return UserNotification_Type.MEMO_COMMENT;
+  if (raw === UserNotification_Type.MEMO_MENTION || raw === 2 || raw === "MEMO_MENTION") return UserNotification_Type.MEMO_MENTION;
+  return UserNotification_Type.TYPE_UNSPECIFIED;
+}
+
+function notificationFromJson(j: Record<string, unknown>): UserNotification {
+  const payload = j.payload && typeof j.payload === "object" ? (j.payload as Record<string, unknown>) : {};
+  const memoComment = (payload.memoComment ?? j.memoComment) as Record<string, unknown> | undefined;
+  const memoMention = (payload.memoMention ?? j.memoMention) as Record<string, unknown> | undefined;
+  return create(UserNotificationSchema, {
+    name: String(j.name ?? ""),
+    sender: String(j.sender ?? ""),
+    senderUser: j.senderUser && typeof j.senderUser === "object" ? userFromJson(j.senderUser as Record<string, unknown>) : undefined,
+    status: notificationStatusFromJson(j.status),
+    createTime: j.createTime ? timestampFromDate(new Date(String(j.createTime))) : undefined,
+    type: notificationTypeFromJson(j.type),
+    payload: memoComment
+      ? {
+          case: "memoComment",
+          value: create(UserNotification_MemoCommentPayloadSchema, {
+            memo: String(memoComment.memo ?? ""),
+            relatedMemo: String(memoComment.relatedMemo ?? ""),
+            memoSnippet: String(memoComment.memoSnippet ?? ""),
+            relatedMemoSnippet: String(memoComment.relatedMemoSnippet ?? ""),
+          }),
+        }
+      : memoMention
+        ? {
+            case: "memoMention",
+            value: create(UserNotification_MemoMentionPayloadSchema, {
+              memo: String(memoMention.memo ?? ""),
+              relatedMemo: String(memoMention.relatedMemo ?? ""),
+              memoSnippet: String(memoMention.memoSnippet ?? ""),
+              relatedMemoSnippet: String(memoMention.relatedMemoSnippet ?? ""),
+            }),
+          }
+        : undefined,
+  });
+}
+
+function webhookFromJson(j: Record<string, unknown>): UserWebhook {
+  return create(UserWebhookSchema, {
+    name: String(j.name ?? ""),
+    url: String(j.url ?? ""),
+    displayName: String(j.displayName ?? ""),
+    createTime: j.createTime ? timestampFromDate(new Date(String(j.createTime))) : undefined,
+    updateTime: j.updateTime ? timestampFromDate(new Date(String(j.updateTime))) : undefined,
+  });
+}
+
 function bytesToBase64(bytes: Uint8Array): string {
   let bin = "";
   for (let i = 0; i < bytes.length; i++) {
@@ -407,7 +474,7 @@ function listMemosQuery(req: Record<string, unknown>): string {
   let stateStr = "NORMAL";
   if (req.state != null && req.state !== "") {
     const st = req.state as number | string;
-    stateStr = typeof st === "number" ? (State[st] as string | undefined) ?? "NORMAL" : String(st);
+    stateStr = typeof st === "number" ? ((State[st] as string | undefined) ?? "NORMAL") : String(st);
   } else if (req.showDeleted) stateStr = "ARCHIVED";
   p.set("state", stateStr);
   if (req.filter != null && String(req.filter).length > 0) {
@@ -492,7 +559,7 @@ export const authServiceClient = {
   async signIn(req: {
     passwordCredentials?: { username?: string; password?: string };
     ssoCredentials?: unknown;
-  }): Promise<{ user?: User; accessToken?: string; accessTokenExpiresAt?: string }> {
+  }): Promise<{ user?: User; accessToken?: string; accessTokenExpiresAt?: ReturnType<typeof timestampFromDate> }> {
     const res = await fetchWithCredentials(`${window.location.origin}${API}/auth/signin`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -513,7 +580,7 @@ export const authServiceClient = {
     return {
       user: j.user ? userFromJson(j.user) : undefined,
       accessToken: j.accessToken,
-      accessTokenExpiresAt: j.accessTokenExpiresAt,
+      accessTokenExpiresAt: j.accessTokenExpiresAt ? timestampFromDate(new Date(j.accessTokenExpiresAt)) : undefined,
     };
   },
   async signOut(_req: object): Promise<object> {
@@ -693,16 +760,9 @@ export const userServiceClient = {
     if (req.pageSize != null) q.set("pageSize", String(req.pageSize));
     if (req.pageToken) q.set("pageToken", req.pageToken);
     const qs = q.toString();
-    const j = await apiJson<{ webhooks: { name: string; url: string; createTime?: string }[] }>(
-      `/users/${encodeURIComponent(u)}/webhooks${qs ? `?${qs}` : ""}`,
-    );
+    const j = await apiJson<{ webhooks: Record<string, unknown>[] }>(`/users/${encodeURIComponent(u)}/webhooks${qs ? `?${qs}` : ""}`);
     return {
-      webhooks: j.webhooks.map((w) => ({
-        name: w.name,
-        url: w.url,
-        displayName: "",
-        createTime: w.createTime,
-      })),
+      webhooks: j.webhooks.map((w) => webhookFromJson(w)),
     };
   },
   async createUserWebhook(req: { parent: string; webhook?: { url?: string; displayName?: string } }) {
@@ -734,9 +794,12 @@ export const userServiceClient = {
   async listUserNotifications(req: { parent: string }) {
     const u = userSeg(req.parent);
     const j = await apiJson<{ notifications: Record<string, unknown>[] }>(`/users/${encodeURIComponent(u)}/notifications`);
-    return { notifications: j.notifications };
+    return { notifications: j.notifications.map((n) => notificationFromJson(n)) };
   },
-  async updateUserNotification(req: { notification: { name?: string; status?: string; payload?: unknown } }) {
+  async updateUserNotification(req: {
+    notification: { name?: string; status?: UserNotification_Status; payload?: unknown };
+    updateMask?: FieldMask;
+  }) {
     const name = req.notification.name ?? "";
     const m = name.match(/^users\/([^/]+)\/notifications\/([^/]+)$/);
     if (!m) throw new ConnectError("invalid notification name", Code.InvalidArgument);
@@ -765,9 +828,7 @@ export const userServiceClient = {
   },
   async listLinkedIdentities(req: { parent: string }): Promise<{ linkedIdentities: LinkedIdentity[] }> {
     const u = userSeg(req.parent);
-    const j = await apiJson<{ linkedIdentities?: Record<string, unknown>[] }>(
-      `/users/${encodeURIComponent(u)}/linkedIdentities`,
-    );
+    const j = await apiJson<{ linkedIdentities?: Record<string, unknown>[] }>(`/users/${encodeURIComponent(u)}/linkedIdentities`);
     const identities = (j.linkedIdentities ?? []).map((li) =>
       create(LinkedIdentitySchema, {
         name: String(li.name ?? ""),
@@ -777,12 +838,33 @@ export const userServiceClient = {
     );
     return { linkedIdentities: identities };
   },
+  async createLinkedIdentity(req: {
+    parent: string;
+    idpName: string;
+    code: string;
+    redirectUri: string;
+    codeVerifier?: string;
+  }): Promise<LinkedIdentity> {
+    const u = userSeg(req.parent);
+    const j = await apiJson<Record<string, unknown>>(`/users/${encodeURIComponent(u)}/linkedIdentities`, {
+      method: "POST",
+      body: JSON.stringify({
+        idpName: req.idpName,
+        code: req.code,
+        redirectUri: req.redirectUri,
+        codeVerifier: req.codeVerifier ?? "",
+      }),
+    });
+    return create(LinkedIdentitySchema, {
+      name: String(j.name ?? ""),
+      idpName: String(j.idpName ?? ""),
+      externUid: String(j.externUid ?? ""),
+    });
+  },
   async getLinkedIdentity(req: { name: string }): Promise<LinkedIdentity> {
     const m = req.name.match(/^users\/([^/]+)\/linkedIdentities\/(.+)$/);
     if (!m) throw new ConnectError("invalid linked identity name", Code.InvalidArgument);
-    const j = await apiJson<Record<string, unknown>>(
-      `/users/${encodeURIComponent(m[1])}/linkedIdentities/${encodeURIComponent(m[2])}`,
-    );
+    const j = await apiJson<Record<string, unknown>>(`/users/${encodeURIComponent(m[1])}/linkedIdentities/${encodeURIComponent(m[2])}`);
     return create(LinkedIdentitySchema, {
       name: String(j.name ?? ""),
       idpName: String(j.idpName ?? ""),
@@ -792,10 +874,7 @@ export const userServiceClient = {
   async deleteLinkedIdentity(req: { name: string }): Promise<object> {
     const m = req.name.match(/^users\/([^/]+)\/linkedIdentities\/(.+)$/);
     if (!m) throw new ConnectError("invalid linked identity name", Code.InvalidArgument);
-    await apiJson(
-      `/users/${encodeURIComponent(m[1])}/linkedIdentities/${encodeURIComponent(m[2])}`,
-      { method: "DELETE" },
-    );
+    await apiJson(`/users/${encodeURIComponent(m[1])}/linkedIdentities/${encodeURIComponent(m[2])}`, { method: "DELETE" });
     return {};
   },
 };
@@ -819,7 +898,7 @@ export const shortcutServiceClient = {
       totalSize: j.totalSize ?? j.shortcuts.length,
     };
   },
-  async createShortcut(req: { parent?: string; shortcut?: { title?: string; filter?: string } }) {
+  async createShortcut(req: { parent?: string; shortcut?: { name?: string; title?: string; filter?: string } }) {
     if (!req.parent) throw new ConnectError("parent required", Code.InvalidArgument);
     const u = userSeg(req.parent);
     const j = await apiJson<Record<string, unknown>>(`/users/${encodeURIComponent(u)}/shortcuts`, {
@@ -963,10 +1042,14 @@ export const memoServiceClient = {
     await apiJson(`/memos/${encodeURIComponent(id)}`, { method: "DELETE" });
     return {};
   },
-  async listMemoComments(req: { name: string }) {
+  async listMemoComments(req: { name: string; pageSize?: number; pageToken?: string }) {
     const id = memoIdFromName(req.name);
+    const q = new URLSearchParams();
+    if (req.pageSize != null) q.set("pageSize", String(req.pageSize));
+    if (req.pageToken) q.set("pageToken", req.pageToken);
+    const qs = q.toString();
     const j = await apiJson<{ memos: Record<string, unknown>[]; nextPageToken?: string; totalSize?: number }>(
-      `/memos/${encodeURIComponent(id)}/comments`,
+      `/memos/${encodeURIComponent(id)}/comments${qs ? `?${qs}` : ""}`,
     );
     return {
       memos: j.memos.map((m) => memoFromJson(m)),
@@ -1035,7 +1118,7 @@ export const memoServiceClient = {
       totalSize: j.totalSize ?? j.reactions.length,
     };
   },
-  async upsertMemoReaction(req: { name: string; reaction: { reactionType?: string } }): Promise<Reaction> {
+  async upsertMemoReaction(req: { name: string; reaction: { contentId?: string; reactionType?: string } }): Promise<Reaction> {
     const id = memoIdFromName(req.name);
     const j = await apiJson<Record<string, unknown>>(`/memos/${encodeURIComponent(id)}/reactions`, {
       method: "POST",
@@ -1151,18 +1234,14 @@ export const identityProviderServiceClient = {
         config: {
           config: {
             case: "oauth2Config",
-            value: (row.config as { oauth2Config?: Record<string, unknown> } | undefined)
-              ?.oauth2Config ?? {},
+            value: (row.config as { oauth2Config?: Record<string, unknown> } | undefined)?.oauth2Config ?? {},
           },
         },
       } as Record<string, unknown>),
     );
     return { identityProviders };
   },
-  async createIdentityProvider(req: {
-    identityProvider?: IdentityProvider;
-    identityProviderId?: string;
-  }): Promise<IdentityProvider> {
+  async createIdentityProvider(req: { identityProvider?: IdentityProvider; identityProviderId?: string }): Promise<IdentityProvider> {
     const body = {
       identityProvider: req.identityProvider,
       identityProviderId: req.identityProviderId ?? "",
@@ -1173,10 +1252,7 @@ export const identityProviderServiceClient = {
     });
     return create(IdentityProviderSchema, j);
   },
-  async updateIdentityProvider(req: {
-    identityProvider?: IdentityProvider;
-    updateMask?: FieldMask;
-  }): Promise<IdentityProvider> {
+  async updateIdentityProvider(req: { identityProvider?: IdentityProvider; updateMask?: FieldMask }): Promise<IdentityProvider> {
     if (!req.identityProvider?.name) {
       throw new ConnectError("identityProvider.name is required", Code.InvalidArgument);
     }

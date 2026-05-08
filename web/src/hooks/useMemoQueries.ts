@@ -145,11 +145,11 @@ export function useDeleteMemo() {
   });
 }
 
-export function useMemoComments(name: string, options?: { enabled?: boolean }) {
+export function useMemoComments(name: string, options?: { enabled?: boolean; pageSize?: number; pageToken?: string }) {
   return useQuery({
     queryKey: memoKeys.comments(name),
     queryFn: async () => {
-      const response = await memoServiceClient.listMemoComments({ name });
+      const response = await memoServiceClient.listMemoComments({ name, pageSize: options?.pageSize, pageToken: options?.pageToken });
       return response;
     },
     enabled: options?.enabled ?? true,

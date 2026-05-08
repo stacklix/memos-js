@@ -26,6 +26,7 @@ const STUB_CONTEXT: MemoViewContextValue = {
   creator: undefined,
   currentUser: undefined,
   parentPage: "/",
+  cardWidth: 0,
   isArchived: false,
   readonly: true,
   showBlurredContent: false,

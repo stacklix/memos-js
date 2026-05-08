@@ -14,6 +14,7 @@ import { rehypeHeadingId } from "@/utils/rehype-plugins/rehype-heading-id";
 import { remarkDisableSetext } from "@/utils/remark-plugins/remark-disable-setext";
 import { extractMentionUsernames, remarkMention } from "@/utils/remark-plugins/remark-mention";
 import { remarkPreserveType } from "@/utils/remark-plugins/remark-preserve-type";
+import { remarkSplitMixedTaskLists } from "@/utils/remark-plugins/remark-split-mixed-task-lists";
 import { remarkTag } from "@/utils/remark-plugins/remark-tag";
 import { CodeBlock } from "./CodeBlock";
 import { isMentionNode, isTagNode, isTaskListItemNode } from "./ConditionalComponent";
@@ -79,7 +80,16 @@ const MemoContent = (props: MemoContentProps) => {
         onDoubleClick={onDoubleClick}
       >
         <ReactMarkdown
-          remarkPlugins={[remarkDisableSetext, remarkMath, remarkGfm, remarkBreaks, remarkMention, remarkTag, remarkPreserveType]}
+          remarkPlugins={[
+            remarkDisableSetext,
+            remarkMath,
+            remarkGfm,
+            remarkSplitMixedTaskLists,
+            remarkBreaks,
+            remarkMention,
+            remarkTag,
+            remarkPreserveType,
+          ]}
           rehypePlugins={[
             rehypeRaw,
             [rehypeSanitize, SANITIZE_SCHEMA],

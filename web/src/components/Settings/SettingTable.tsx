@@ -26,9 +26,10 @@ const SettingTable = <T extends Record<string, unknown>>({
   getRowKey,
   variant = "default",
 }: SettingTableProps<T>) => {
-  const cellBase = variant === "info-flow"
-    ? "px-3 py-3 text-sm text-muted-foreground align-top"
-    : "whitespace-nowrap px-3 py-2 text-sm text-muted-foreground";
+  const cellBase =
+    variant === "info-flow"
+      ? "px-3 py-3 text-sm text-muted-foreground align-top"
+      : "whitespace-nowrap px-3 py-2 text-sm text-muted-foreground";
 
   return (
     <div className={cn("w-full overflow-x-auto", className)}>

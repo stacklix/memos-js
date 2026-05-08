@@ -2,6 +2,7 @@ import { LatLng } from "leaflet";
 import { uniqBy } from "lodash-es";
 import {
   FileIcon,
+  ImageIcon,
   LinkIcon,
   LoaderIcon,
   type LucideIcon,
@@ -16,11 +17,11 @@ import { useDebounce } from "react-use";
 import { LinkMemoDialog, LocationDialog } from "@/components/MemoMetadata";
 import { useReverseGeocoding } from "@/components/map";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
@@ -131,41 +132,49 @@ const InsertMenu = (props: InsertMenuProps) => {
     setMoreSubmenuOpen(false);
   }, [onToggleFocusMode]);
 
+  const handleMediaUploadClick = useCallback(() => {
+    handleUploadClick("image/*,video/*");
+  }, [handleUploadClick]);
+
+  const handleFileUploadClick = useCallback(() => {
+    handleUploadClick();
+  }, [handleUploadClick]);
+
   const menuItems = useMemo(
     () =>
       [
         {
-          key: "upload",
-          label: t("common.upload"),
+          key: "upload-media",
+          label: t("attachment-library.tabs.media"),
+          icon: ImageIcon,
+          onClick: handleMediaUploadClick,
+        },
+        {
+          key: "record-audio",
+          label: t("editor.audio-recorder.trigger"),
+          icon: MicIcon,
+          onClick: () => props.onAudioRecorderClick?.(),
+        },
+        {
+          key: "upload-file",
+          label: t("common.file"),
           icon: FileIcon,
-          onClick: handleUploadClick,
+          onClick: handleFileUploadClick,
         },
         {
           key: "link",
-          label: t("tooltip.link-memo"),
+          label: t("editor.insert-menu.link-memo"),
           icon: LinkIcon,
           onClick: handleOpenLinkDialog,
         },
         {
           key: "location",
-          label: t("tooltip.select-location"),
+          label: t("editor.insert-menu.add-location"),
           icon: MapPinIcon,
           onClick: handleLocationClick,
         },
-        {
-          key: "voice-note",
-          label: t("editor.voice-recorder.trigger"),
-          icon: MicIcon,
-          onClick: () => props.onVoiceRecorderClick?.(),
-        },
-      ] satisfies Array<{
-        key: string;
-        label: string;
-        icon: LucideIcon;
-        onClick: () => void;
-        notImplemented?: boolean;
-      }>,
-    [handleLocationClick, handleOpenLinkDialog, handleUploadClick, props, t],
+      ] satisfies Array<{ key: string; label: string; icon: LucideIcon; onClick: () => void }>,
+    [handleFileUploadClick, handleLocationClick, handleMediaUploadClick, handleOpenLinkDialog, props, t],
   );
 
   return (
@@ -177,23 +186,20 @@ const InsertMenu = (props: InsertMenuProps) => {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start">
-          {menuItems.map((item) => (
-            <DropdownMenuItem
-              key={item.key}
-              disabled={item.notImplemented}
-              onClick={item.notImplemented ? undefined : item.onClick}
-              title={item.notImplemented ? t("editor.attachments-not-implemented-detail") : undefined}
-              className={cn(item.notImplemented && "cursor-not-allowed")}
-            >
-              <item.icon className="w-4 h-4 shrink-0" />
-              <span className="flex-1 min-w-0 text-left">{item.label}</span>
-              {item.notImplemented ? (
-                <span className="ml-2 shrink-0 text-xs font-normal text-muted-foreground">
-                  {t("editor.attachments-not-implemented")}
-                </span>
-              ) : null}
+          {menuItems.slice(0, 3).map((item) => (
+            <DropdownMenuItem key={item.key} onClick={item.onClick}>
+              <item.icon className="w-4 h-4" />
+              {item.label}
             </DropdownMenuItem>
           ))}
+          <DropdownMenuSeparator />
+          {menuItems.slice(3).map((item) => (
+            <DropdownMenuItem key={item.key} onClick={item.onClick}>
+              <item.icon className="w-4 h-4" />
+              {item.label}
+            </DropdownMenuItem>
+          ))}
+          <DropdownMenuSeparator />
           {/* View submenu with Focus Mode */}
           <DropdownMenuSub open={moreSubmenuOpen} onOpenChange={setMoreSubmenuOpen}>
             <DropdownMenuSubTrigger onPointerEnter={handleTriggerEnter} onPointerLeave={handleTriggerLeave}>

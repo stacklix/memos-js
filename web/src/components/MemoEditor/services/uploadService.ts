@@ -1,24 +1,30 @@
 import { create } from "@bufbuild/protobuf";
 import { attachmentServiceClient } from "@/connect";
-import { AttachmentSchema } from "@/types/proto/api/v1/attachment_service_pb";
 import type { Attachment } from "@/types/proto/api/v1/attachment_service_pb";
+import { AttachmentSchema, MotionMediaSchema } from "@/types/proto/api/v1/attachment_service_pb";
 import type { LocalFile } from "../types/attachment";
 
 export const uploadService = {
   async uploadFiles(localFiles: LocalFile[]): Promise<Attachment[]> {
-    const uploaded: Attachment[] = [];
-    for (const local of localFiles) {
-      const file = local.file;
-      const content = new Uint8Array(await file.arrayBuffer());
-      const created = await attachmentServiceClient.createAttachment({
+    if (localFiles.length === 0) return [];
+
+    const attachments: Attachment[] = [];
+
+    for (const localFile of localFiles) {
+      const { file, motionMedia } = localFile;
+      const buffer = new Uint8Array(await file.arrayBuffer());
+      const attachment = await attachmentServiceClient.createAttachment({
         attachment: create(AttachmentSchema, {
           filename: file.name,
-          content,
-          type: file.type || "application/octet-stream",
+          size: BigInt(file.size),
+          type: file.type,
+          content: buffer,
+          motionMedia: motionMedia ? create(MotionMediaSchema, motionMedia) : undefined,
         }),
       });
-      uploaded.push(created);
+      attachments.push(attachment);
     }
-    return uploaded;
+
+    return attachments;
   },
 };

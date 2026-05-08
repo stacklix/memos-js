@@ -3,8 +3,8 @@ import { Button } from "@/components/ui/button";
 import { identityProviderServiceClient } from "@/connect";
 import { absolutifyLink } from "@/helpers/utils";
 import { IdentityProvider } from "@/types/proto/api/v1/idp_service_pb";
-import { storeOAuthState } from "@/utils/oauth";
 import { useTranslate } from "@/utils/i18n";
+import { storeOAuthState } from "@/utils/oauth";
 
 interface Props {
   redirectPath?: string;
@@ -31,10 +31,7 @@ const SsoSignInForm = ({ redirectPath }: Props) => {
   const availableProviders = useMemo(
     () =>
       providers.filter(
-        (p) =>
-          p.config?.config?.case === "oauth2Config" &&
-          p.config.config.value?.authUrl &&
-          p.config.config.value?.clientId,
+        (p) => p.config?.config?.case === "oauth2Config" && p.config.config.value?.authUrl && p.config.config.value?.clientId,
       ),
     [providers],
   );
@@ -45,7 +42,7 @@ const SsoSignInForm = ({ redirectPath }: Props) => {
     setLoading(true);
     try {
       const redirectUri = absolutifyLink("/auth/callback");
-      const { state, codeChallenge } = await storeOAuthState(provider.name, redirectPath);
+      const { state, codeChallenge } = await storeOAuthState(provider.name, "signin", redirectPath);
       const url = new URL(oauth2.authUrl);
       url.searchParams.set("response_type", "code");
       url.searchParams.set("client_id", oauth2.clientId);
@@ -69,13 +66,7 @@ const SsoSignInForm = ({ redirectPath }: Props) => {
   return (
     <div className="w-full flex flex-col gap-2 mt-4">
       {availableProviders.map((provider) => (
-        <Button
-          key={provider.name}
-          variant="outline"
-          type="button"
-          disabled={loading}
-          onClick={() => handleSignIn(provider)}
-        >
+        <Button key={provider.name} variant="outline" type="button" disabled={loading} onClick={() => handleSignIn(provider)}>
           {t("common.sign-in-with", { provider: provider.title })}
         </Button>
       ))}

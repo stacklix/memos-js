@@ -101,7 +101,7 @@ const LinkedIdentitySection = () => {
 
     try {
       const returnUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-      const { state, codeChallenge } = await storeOAuthState(identityProvider.name, returnUrl);
+      const { state, codeChallenge } = await storeOAuthState(identityProvider.name, "link", returnUrl, currentUser.name);
 
       let authUrl = `${oauth2Config.authUrl}?client_id=${
         oauth2Config.clientId

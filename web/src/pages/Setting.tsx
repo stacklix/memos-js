@@ -21,8 +21,8 @@ import MemoRelatedSettings from "@/components/Settings/MemoRelatedSettings";
 import MyAccountSection from "@/components/Settings/MyAccountSection";
 import PreferencesSection from "@/components/Settings/PreferencesSection";
 import SectionMenuItem from "@/components/Settings/SectionMenuItem";
-import StorageSection from "@/components/Settings/StorageSection";
 import SSOSection from "@/components/Settings/SSOSection";
+import StorageSection from "@/components/Settings/StorageSection";
 import TagsSection from "@/components/Settings/TagsSection";
 import WebhookSection from "@/components/Settings/WebhookSection";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -33,17 +33,7 @@ import { InstanceSetting_Key } from "@/types/proto/api/v1/instance_service_pb";
 import { User_Role } from "@/types/proto/api/v1/user_service_pb";
 import { useTranslate } from "@/utils/i18n";
 
-type SettingSection =
-  | "my-account"
-  | "preference"
-  | "webhook"
-  | "member"
-  | "system"
-  | "memo"
-  | "storage"
-  | "tags"
-  | "sso"
-  | "ai";
+type SettingSection = "my-account" | "preference" | "webhook" | "member" | "system" | "memo" | "storage" | "tags" | "sso" | "ai";
 
 const BASIC_SECTIONS: SettingSection[] = ["my-account", "preference", "webhook"];
 const ADMIN_SECTIONS: SettingSection[] = ["member", "system", "memo", "tags", "storage", "sso", "ai"];
@@ -92,9 +82,7 @@ const Setting = () => {
     const hash = location.hash.slice(1) as SettingSection;
     const saved = localStorage.getItem(LAST_SETTING_SECTION_STORAGE_KEY) as SettingSection | null;
     const savedSection = saved && settingsSectionList.includes(saved) ? saved : null;
-    const nextSection = settingsSectionList.includes(hash)
-      ? hash
-      : (savedSection ?? "my-account");
+    const nextSection = settingsSectionList.includes(hash) ? hash : (savedSection ?? "my-account");
     setSelectedSection(nextSection);
     localStorage.setItem(LAST_SETTING_SECTION_STORAGE_KEY, nextSection);
     if (!location.hash && nextSection) {

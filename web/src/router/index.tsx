@@ -4,7 +4,9 @@ import App from "@/App";
 import { ChunkLoadErrorFallback } from "@/components/ErrorBoundary";
 import MainLayout from "@/layouts/MainLayout";
 import RootLayout from "@/layouts/RootLayout";
-import { RequireAuthRoute, RequireGuestRoute } from "./guards";
+import Home from "@/pages/Home";
+import { LandingRoute, RequireAuthRoute, RequireGuestRoute } from "./guards";
+import { ROUTES } from "./routes";
 
 // Wrap lazy imports to auto-reload on chunk load failure (e.g., after redeployment).
 function lazyWithReload<T extends React.ComponentType>(factory: () => Promise<{ default: T }>) {
@@ -23,24 +25,21 @@ function lazyWithReload<T extends React.ComponentType>(factory: () => Promise<{ 
   );
 }
 
-const Home = lazyWithReload(() => import("@/pages/Home"));
 const AdminSignIn = lazyWithReload(() => import("@/pages/AdminSignIn"));
 const Archived = lazyWithReload(() => import("@/pages/Archived"));
-const Attachments = lazyWithReload(() => import("@/pages/Attachments"));
+const AuthCallback = lazyWithReload(() => import("@/pages/AuthCallback"));
 const Explore = lazyWithReload(() => import("@/pages/Explore"));
 const Inboxes = lazyWithReload(() => import("@/pages/Inboxes"));
 const MemoDetail = lazyWithReload(() => import("@/pages/MemoDetail"));
 const NotFound = lazyWithReload(() => import("@/pages/NotFound"));
 const PermissionDenied = lazyWithReload(() => import("@/pages/PermissionDenied"));
+const Attachments = lazyWithReload(() => import("@/pages/Attachments"));
 const Setting = lazyWithReload(() => import("@/pages/Setting"));
 const SignIn = lazyWithReload(() => import("@/pages/SignIn"));
-const AuthCallback = lazyWithReload(() => import("@/pages/AuthCallback"));
 const SignUp = lazyWithReload(() => import("@/pages/SignUp"));
 const UserProfile = lazyWithReload(() => import("@/pages/UserProfile"));
 
-import { ROUTES } from "./routes";
-
-// Backward compatibility alias
+// Backward compatibility alias.
 export const Routes = ROUTES;
 export { ROUTES };
 
@@ -72,19 +71,22 @@ export const routeConfig: RouteObject[] = [
           },
         ],
       },
+      { index: true, element: <LandingRoute /> },
       {
-        path: Routes.ROOT,
+        path: Routes.ENTRY,
         element: <RootLayout />,
         children: [
           {
             element: <MainLayout />,
             children: [
-              { path: "", element: <Home /> },
               { path: Routes.EXPLORE, element: <Explore /> },
               { path: "u/:username", element: <UserProfile /> },
               {
                 element: <RequireAuthRoute />,
-                children: [{ path: Routes.ARCHIVED, element: <Archived /> }],
+                children: [
+                  { path: Routes.HOME, element: <Home /> },
+                  { path: Routes.ARCHIVED, element: <Archived /> },
+                ],
               },
             ],
           },
@@ -93,8 +95,8 @@ export const routeConfig: RouteObject[] = [
           {
             element: <RequireAuthRoute />,
             children: [
-              { path: Routes.INBOX, element: <Inboxes /> },
               { path: Routes.ATTACHMENTS, element: <Attachments /> },
+              { path: Routes.INBOX, element: <Inboxes /> },
               { path: Routes.SETTING, element: <Setting /> },
             ],
           },
