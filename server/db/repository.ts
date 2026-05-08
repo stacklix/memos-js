@@ -1715,6 +1715,14 @@ export function createRepository(sql: SqlAdapter) {
       return rows[0] ?? null;
     },
 
+    async getUserIdentityByProviderExternUid(provider: string, externUid: string): Promise<DbUserIdentityRow | null> {
+      const rows = await sql.queryAll<DbUserIdentityRow>(
+        "SELECT id, user_id, provider, extern_uid, created_ts, updated_ts FROM user_identity WHERE provider = ? AND extern_uid = ?",
+        [provider, externUid],
+      );
+      return rows[0] ?? null;
+    },
+
     async upsertUserIdentity(userId: number, provider: string, externUid: string): Promise<DbUserIdentityRow> {
       await sql.execute(
         `INSERT INTO user_identity (user_id, provider, extern_uid)

@@ -1,29 +1,19 @@
-# Current Branch (`master`) vs `golang` Branch: Remaining Differences
+# Current Branch (`master`) vs `golang` Branch: Differences
 
-> Updated: 2026-04-29. Baseline: `master` vs `golang@9bf648ac` (v0.28.0).
-> REST API contract reference: [https://usememos.com/docs/api/0-28-0](https://usememos.com/docs/api/0-28-0) and `golang:proto/gen/openapi.yaml`.
+> Updated: 2026-05-06. Baseline: `master` vs `golang@9bf648ac` (v0.28.0).
 >
-> **Excluded by design** (will not be closed in this fork):
-> - Instance `STORAGE` setting backend API + dynamic `supportedStorageTypes` frontend rendering
-> - SSE endpoint on Cloudflare Worker (CF streaming is not compatible with long-lived SSE)
+> **Excluded by design**:
+> - Instance `STORAGE` backend API + dynamic `supportedStorageTypes` frontend rendering
+> - SSE endpoint on Cloudflare Worker (CF streaming incompatible with long-lived SSE)
 
 ---
 
-## 1) Database schema differences
+## 1) Database Schema
 
-### 1.1 Table-level comparison (`migrations/0001_initial.sql` vs `store/migration/sqlite/LATEST.sql`)
+### `user_identity` table
 
-The 9 original business tables are **structurally identical** across both branches (column names, types, constraints, and defaults match):
+`golang@9bf648ac` has `user_identity` in `store/migration/sqlite/LATEST.sql`. `master` has equivalent via `migrations/0002_user_identity.sql`:
 
-`system_setting`, `user`, `user_setting`, `memo`, `memo_relation`, `attachment`, `idp`, `inbox`, `reaction`, `memo_share`
-
-### 1.2 Tables exclusive to `golang` (not yet in `master`)
-
-| Table | Purpose |
-| --- | --- |
-| `user_identity` | Stores linked SSO / OAuth2 identities per user; supports the new `linkedIdentities` REST endpoints |
-
-`user_identity` schema in `golang`:
 ```sql
 CREATE TABLE user_identity (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -38,154 +28,97 @@ CREATE TABLE user_identity (
 CREATE INDEX idx_user_identity_user_id ON user_identity(user_id);
 ```
 
-### 1.3 Tables exclusive to `master`
+### Migration mechanism
 
-| Table | Purpose |
-| --- | --- |
-| `schema_migrations(version INTEGER PK)` | Node incremental migration bookkeeping; not present in `golang` |
+| | `master` | `golang` |
+|---|---|---|
+| Evolution | Incremental `migrations/NNNN_*.sql` | `store/migration/sqlite/*` dirs + `LATEST.sql` |
+| Version tracking | `schema_migrations` table | None |
 
-### 1.4 DDL-level differences (non-semantic)
+### DDL guards
 
-| Difference | `master` | `golang` |
-| --- | --- | --- |
-| `CREATE TABLE` guard | `CREATE TABLE IF NOT EXISTS` | `CREATE TABLE` |
-| Index guard | `CREATE INDEX IF NOT EXISTS` | `CREATE INDEX` |
-
-### 1.5 Migration mechanism
-
-| Item | `master` | `golang` |
-| --- | --- | --- |
-| Evolution model | Incremental `migrations/NNNN_*.sql` files | `store/migration/sqlite/*` version dirs + `LATEST.sql` |
-| Version tracking | Writes explicit `schema_migrations` records | No equivalent table |
+`master` uses `CREATE TABLE IF NOT EXISTS` / `CREATE INDEX IF NOT EXISTS`. `golang` uses plain `CREATE TABLE` / `CREATE INDEX`.
 
 ---
 
-## 2) Backend API differences (`server/routes/v1` vs `golang`)
+## 2) Backend API (`server/routes/v1`)
 
-> Reference: `golang:proto/gen/openapi.yaml` (auto-generated from proto definitions).
+### API transport strategy
 
-### 2.1 Missing endpoints in `master`
+`master` uses **custom REST** — `web/src/connect.ts` (~1110 lines) translates gRPC-style service calls into plain JSON REST.
 
-| Method | Path | Notes |
-| --- | --- | --- |
-| `GET` | `/api/v1/sse` | SSE endpoint exists in `master` but only for **Node.js** (`enableSSE: true`). CF Worker does not mount it (streaming incompatible). `golang` has it unconditionally. |
+`golang` uses **Connect gRPC** via `@connectrpc/connect-web` (~203 lines); native binary+JSON Connect protocol.
 
-> **Note:** `GET /api/v1/users/{user}:getStats` **is implemented** in `master` (handled inside the wildcard `GET /users/:username` handler via suffix matching), despite not being a named route.
+### Missing endpoints in `master`
 
-### 2.2 Path differences (master deviates from golang contract)
+| Method | Path | Note |
+|---|---|---|
+| `GET` | `/api/v1/sse` | Node.js only (`enableSSE: true`); CF Worker excluded |
 
-| Resource | `master` path | `golang` / OpenAPI path | Impact |
-| --- | --- | --- | --- |
-| Instance settings (GET) | `GET /api/v1/instance/settings/{KEY}` | `GET /api/v1/{name=instance/settings/*}` | Both resolve to the same effective path; `master` uses a simpler param extraction. |
-| Instance settings (PATCH) | `PATCH /api/v1/instance/settings/{KEY}` | `PATCH /api/v1/{setting.name=instance/settings/*}` | Same as above. |
+### Path differences
 
-### 2.3 Semantic / field differences in existing routes
+| Resource | `master` path | `golang` path |
+|---|---|---|
+| Instance settings (GET) | `GET /api/v1/instance/settings/{KEY}` | `GET /api/v1/{name=instance/settings/*}` |
+| Instance settings (PATCH) | `PATCH /api/v1/instance/settings/{KEY}` | `PATCH /api/v1/{setting.name=instance/settings/*}` |
 
-| Module | `master` behavior | `golang` behavior |
-| --- | --- | --- |
-| **Instance `STORAGE` setting** | Returns extra `supportedStorageTypes` (dynamic, includes `R2`) | Fixed enum `DATABASE/LOCAL/S3`; no dynamic field — **excluded by design** |
-| **Instance `AI` setting** | `instance/settings/AI` persisted; full `AIService` + AI provider config; `POST /api/v1/ai:transcribe` implemented (aligned) | Full `AIService` + AI instance settings (`InstanceSetting_Key.AI`) |
-| **Memo `filter` / CEL** | Subset implementation in `server/lib/memo-filter.ts` (covers common patterns used by the web client: creator, visibility, tag, pinned, time range, content.contains) | Full CEL compilation semantics |
-| **API transport** | `web/src/connect.ts` implements a **custom REST client** (~1110 lines) that translates gRPC-style service calls into plain JSON REST calls | `web/src/connect.ts` uses **Connect gRPC/protocol transport** via `@connectrpc/connect-web` (~203 lines); native binary+JSON Connect protocol |
+### Semantic differences
 
-### 2.4 Resolved gaps
-
-| Module | Status |
-| --- | --- |
-| Auth endpoints (`/signin`, `/signout`, `/refresh`, `/me`) | ✅ Fully aligned |
-| User CRUD, PAT, webhook, notification, shortcut endpoints | ✅ Fully aligned |
-| Memo CRUD, comments, reactions, relations, shares | ✅ Fully aligned |
-| `DELETE /memos/{memo}` soft-delete / `?force=true` | ✅ Aligned — archives by default; `?force=true` hard-deletes |
-| Attachment CRUD, `batchDelete`, `motionMedia` field | ✅ Fully aligned |
-| `POST /api/v1/users:batchGet` | ✅ Implemented |
-| Identity provider CRUD | ✅ Fully aligned |
-| GENERAL settings persistence (`additionalScript`, `additionalStyle`, `customProfile`, `weekStartDayOffset`) | ✅ Fixed |
-| **Memo `name` field** | ✅ Uses `"memos/{uid}"` (UUID v4 from `memo.uid` column) — aligned with golang |
-| **`PATCH /memos/{memo}` updateMask** | ✅ `updateMask` is now required in the request body; server applies only the paths listed |
-| **`GET /memos` `showDeleted` param** | ✅ `showDeleted=true` (or `show_deleted=true`) sets state to ARCHIVED — aligned with golang |
-| **`PATCH /users/{user}/settings/{setting}` updateMask** | ✅ Already enforced — rejects empty updateMask |
-| **MCP endpoint** | ✅ Implemented at `POST/GET/DELETE /mcp` (Streamable HTTP transport) in `server/routes/mcp.ts` |
-| **`user_identity` table** | ✅ Added in `migrations/0002_user_identity.sql` |
-| **`POST /api/v1/ai:transcribe`** | ✅ Implemented in `server/routes/v1/ai.ts`; reads AI provider from `instance/settings/AI` |
-| **`GET/DELETE /api/v1/users/{user}/linkedIdentities[/{id}]`** | ✅ Implemented in `server/routes/v1/users.ts` |
-| **Instance `AI` setting persistence** | ✅ `instance/settings/AI` key persisted and served via `server/lib/instance-ai-setting.ts` |
+| Module | `master` | `golang` |
+|---|---|---|
+| **Instance `STORAGE`** | Dynamic `supportedStorageTypes` includes `R2` | Fixed enum `DATABASE/LOCAL/S3` — **excluded** |
+| **Memo `filter` / CEL** | Subset in `server/lib/memo-filter.ts` | Full CEL compilation |
 
 ---
 
-## 3) Frontend differences (`web/`)
+## 3) Frontend (`web/`)
 
-### 3.1 Pages (`web/src/pages/`)
+### Pages with differences (`web/src/pages/`)
 
-All 14 pages exist in both branches. The following pages have notable differences:
+| Page | Difference |
+|---|---|
+| `SignIn.tsx` | `master` delegates to `SsoSignInForm` component; golang had inline SSO logic (~84 lines) |
+| `MemoDetail.tsx` | `master` removes `MentionResolutionProvider`, `shareImageDialogOpen` state, `onShareImageOpen` prop (~69 lines) |
+| `Setting.tsx` | `master` adds `ai` section with `AISection`; golang had simpler structure |
+| `AuthCallback.tsx` | `ssoCredentials` object vs golang's `credentials.case/value` shape (~13 lines) |
+| `Inboxes.tsx` | `master` removes `MemoMentionMessage` (~4 lines) |
+| `SignUp.tsx` | `passwordCredentials` object vs golang's `credentials.case/value` (~5 lines) |
 
-| Page | Nature of change in `master` vs `golang` |
-| --- | --- |
-| `SignIn.tsx` | `master` adds SSO sign-in form and extra UI (~87 lines); `golang` baseline is simpler |
-| `MemoDetail.tsx` | `master` has sidebar/layout changes (~69 lines) |
-| `Setting.tsx` | `golang` adds **AI** settings section and `LinkedIdentitySection`; `master` is missing these |
-| `AuthCallback.tsx` | Minor differences (~13 lines) |
-| `Inboxes.tsx` | Minor additions in `master` (~4 lines) |
+### `master`-only components
 
-### 3.2 Components present in `master` but NOT in `golang`
-
-| Component | Notes |
-| --- | --- |
-| `MemoAttachment.tsx` | Single-attachment display (audio inline; other files show icon + filename) |
-| `MemoResource.tsx` | Wraps `MemoAttachment` to flat-render a memo's attachment list |
-| `SsoSignInForm.tsx` | SSO sign-in form component |
+| Component | Note |
+|---|---|
+| `MemoAttachment.tsx` | Single attachment display |
+| `MemoResource.tsx` | Flat-renders memo's attachment list |
+| `SsoSignInForm.tsx` | SSO sign-in form |
 | `MemoActionMenu/MemoShareImageDialog.tsx` | Share-as-image dialog |
-| `MemoActionMenu/MemoShareImagePreview.tsx` | Image preview for sharing |
-| `MemoActionMenu/memoShareImage.ts` | Share image generation logic |
+| `MemoActionMenu/MemoShareImagePreview.tsx` | Image preview |
+| `MemoActionMenu/memoShareImage.ts` | Share image generation |
 | `MemoContent/constants.ts` | Content rendering constants |
-| `MemoEditor/hooks/useVoiceRecorder.ts` | Voice recorder hook (master equivalent of golang's `useAudioRecorder` + `useAudioWaveform`; all three now coexist) |
-| `MemoEditor/services/` (6 files) | Service layer: cache, error, memo, upload, validation, index |
-| `MemoEditor/state/` (5 files) | State management: actions, context, index, reducer, types |
-
-### 3.3 Components present in `golang` but NOT in `master`
-
-All `golang`-only components have been added to `master`:
-
-| Component | Status |
-| --- | --- |
-| `Settings/AISection.tsx` | ✅ Added — AI provider configuration panel (maps to `instance/settings/AI`) |
-| `Settings/LinkedIdentitySection.tsx` | ✅ Added — lists and manages linked SSO identities per user |
-| `Settings/InfoChip.tsx` | ✅ Added — reusable badge/chip used by `LinkedIdentitySection` and `SSOSection` |
-| `router/guards.tsx` | ✅ Added — `LandingRoute`, `RequireAuthRoute`, `RequireGuestRoute` guard components |
-| `helpers/sso-display.ts` | ✅ Added — SSO provider display utilities |
-
-### 3.4 Components that differ between branches
-
-All previously diverged components have been aligned with `golang`:
-
-| Component | Status |
-| --- | --- |
-| `Settings/SSOSection.tsx` | ✅ Aligned — imports `InfoChip`, `sso-display` utilities, uses `IdentityProviderRow` with error handling |
-| `Settings/MyAccountSection.tsx` | ✅ Aligned — adds delete-account functionality and renders `LinkedIdentitySection` |
-| `router/index.tsx` | ✅ Aligned — uses `RequireAuthRoute`/`RequireGuestRoute` guards; exports `routeConfig` |
-| `web/src/App.tsx` | ✅ Aligned — adds `cleanupExpiredOAuthState()` on mount |
-
-### 3.5 Realtime refresh (SSE)
-
-The `/api/v1/sse` endpoint is mounted in `master` **Node.js only** (via `enableSSE: true`). CF Worker does not expose SSE. `golang` exposes it unconditionally.
+| `MemoEditor/hooks/useVoiceRecorder.ts` | Voice recorder hook |
+| `MemoEditor/services/` (6 files) | Service layer |
+| `MemoEditor/state/` (5 files) | State management |
 
 ---
 
-## 4) Runtime / deployment differences
+## 4) Runtime / Deployment
 
-| Area | `master` | `golang` |
-| --- | --- | --- |
-| Frontend static hosting | Worker `ASSETS` binding / Node local static dir (`dist/public/`) | Built-in Echo fileserver |
-| Primary DB | Node → SQLite; Worker → D1 (Cloudflare) | Single runtime (SQLite / PostgreSQL / MySQL via driver) |
+| | `master` | `golang` |
+|---|---|---|
+| Frontend hosting | Worker `ASSETS` / Node `dist/public/` | Echo fileserver |
+| Primary DB | Node → SQLite; Worker → D1 (CF) | SQLite / PostgreSQL / MySQL |
 | Object storage | `DATABASE / LOCAL / S3 / R2` | `DATABASE / LOCAL / S3` (no R2) |
-| Realtime (SSE) | Node.js only; CF Worker excluded | Unconditionally available |
-| MCP | ✅ Implemented at `/mcp` (Streamable HTTP, stateless per-request) | `server/router/mcp/*` (stateful sessions) |
-| Frontend API transport | Custom REST client in `connect.ts` | Connect gRPC/protocol via `@connectrpc/connect-web` |
+| SSE | Node.js only | Unconditional |
+| MCP | Stateless at `/mcp` | Stateful sessions |
 
 ---
 
-## 5) CI / Quality gates
+## 5) golang forward commits (9bf648ac → 40fd700f)
 
-| Item | Notes |
-| --- | --- |
-| GitHub Actions CI | `.github/workflows/ci.yml` runs type-check, tests, and uploads coverage to Codecov on every push/PR targeting `master` |
-| Branch protection | Merging to `master` requires CI to pass |
+New changes in `golang` not yet in `master`:
+
+- `fix(fileserver): render SVG attachment previews`
+- `fix: remove duplicate Japanese locale keys`
+- `i18n: refine and normalize Japanese locale strings`
+- `chore(web): improve navigation accessibility`
+- `fix(frontend): restore sitemap and robots routes`

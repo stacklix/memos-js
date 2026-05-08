@@ -80,4 +80,36 @@ describe("integration: errors and unimplemented", () => {
     });
     expect(patch.status).toBe(200);
   });
+
+  it("does not expose master-only non-contract endpoints", async () => {
+    const app = createTestApp();
+    const { accessToken } = await seedAdmin(app, { username: "contract-admin", password: "secret123" });
+
+    const ai = await apiRequest(app, "/api/v1/ai/transcribe", {
+      method: "POST",
+      bearer: accessToken,
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    expect(ai.status).toBe(404);
+
+    const users = await apiRequest(app, "/api/v1/users/:batchGet", {
+      method: "POST",
+      bearer: accessToken,
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    expect(users.status).toBe(404);
+
+    const attachments = await apiRequest(app, "/api/v1/attachments/:batchDelete", {
+      method: "POST",
+      bearer: accessToken,
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    expect(attachments.status).toBe(404);
+
+    const mcp = await apiRequest(app, "/mcp", { method: "POST" });
+    expect(mcp.status).toBe(404);
+  });
 });

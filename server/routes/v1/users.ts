@@ -11,10 +11,23 @@ import {
 import { GrpcCode, jsonError } from "../../lib/grpc-status.js";
 import { b64urlToUtf8, utf8ToB64url } from "../../lib/b64url.js";
 import { hashPassword } from "../../services/password.js";
+import {
+  exchangeOAuth2Token,
+  fetchOAuth2UserInfo,
+  parseOAuth2Config,
+} from "../../services/oauth2-idp.js";
 import { authPrincipalFromUserRow, userToJson } from "../../lib/serializers.js";
 import { userStatsFieldsFromMemoRows } from "../../lib/user-stats-from-memos.js";
 import { validateUserAvatarUrl } from "../../lib/user-avatar-data-uri.js";
 import { isValidMemosUsername } from "../../lib/user-username.js";
+
+function extractIdentityProviderUid(name: string): string | null {
+  const prefix = "identity-providers/";
+  if (!name.startsWith(prefix)) return null;
+  const uid = name.slice(prefix.length).trim();
+  if (!uid || !/^[a-z0-9][a-z0-9-]{0,31}$/i.test(uid)) return null;
+  return uid;
+}
 
 /** Proto `User.Role`: ROLE_UNSPECIFIED=0, ADMIN=2, USER=3 — JSON often uses these numbers. */
 const createUserRoleField = z
@@ -243,32 +256,6 @@ export function createUserRoutes(deps: AppDeps) {
       email: body.user.email,
     });
     return c.json(userToJson(created, authPrincipalFromUserRow(created)));
-  });
-
-  r.post("/:action", async (c) => {
-    if (c.req.param("action") !== ":batchGet") {
-      return jsonError(c, GrpcCode.UNIMPLEMENTED, "unknown action");
-    }
-    const viewer = c.get("auth");
-    type Body = { usernames?: string[] };
-    let body: Body;
-    try {
-      body = (await c.req.json()) as Body;
-    } catch {
-      return jsonError(c, GrpcCode.INVALID_ARGUMENT, "invalid json");
-    }
-    const rawUsernames = Array.isArray(body.usernames) ? body.usernames : [];
-    if (rawUsernames.length > 100) {
-      return jsonError(c, GrpcCode.INVALID_ARGUMENT, "too many usernames; max 100");
-    }
-    const usernames = rawUsernames.map((u) =>
-      typeof u === "string" && u.startsWith("users/") ? u.slice("users/".length) : u,
-    );
-    const users = await Promise.all(usernames.map((u) => repo.getUser(u)));
-    const active = users.filter(
-      (u): u is NonNullable<typeof u> => u !== null && u !== undefined && u.state === "NORMAL",
-    );
-    return c.json({ users: active.map((u) => userToJson(u, viewer)) });
   });
 
   const forUser = new Hono<{ Variables: ApiVariables }>();
@@ -1023,6 +1010,94 @@ export function createUserRoutes(deps: AppDeps) {
         idpName: `identity-providers/${encodeURIComponent(row.provider)}`,
         externUid: row.extern_uid,
       })),
+    });
+  });
+
+  forUser.post("/linkedIdentities", async (c) => {
+    const auth = c.get("auth");
+    if (!auth) return jsonError(c, GrpcCode.UNAUTHENTICATED, "permission denied");
+    const username = c.req.param("username")!;
+    if (username.includes(":")) return jsonError(c, GrpcCode.INVALID_ARGUMENT, "invalid user resource");
+    if (auth.username !== username) {
+      return jsonError(c, GrpcCode.PERMISSION_DENIED, "permission denied");
+    }
+    type Body = {
+      idpName?: string;
+      code?: string;
+      redirectUri?: string;
+      codeVerifier?: string;
+    };
+    const body = (await c.req.json()) as Body;
+    const providerUid = extractIdentityProviderUid(body.idpName ?? "");
+    if (!providerUid) return jsonError(c, GrpcCode.INVALID_ARGUMENT, "invalid identity provider name");
+    if (!body.code) return jsonError(c, GrpcCode.INVALID_ARGUMENT, "code required");
+    if (!body.redirectUri) return jsonError(c, GrpcCode.INVALID_ARGUMENT, "redirect uri required");
+
+    const userId = await repo.getUserInternalId(username);
+    if (userId === null) return jsonError(c, GrpcCode.NOT_FOUND, "user not found");
+    const provider = await repo.getIdentityProviderByUid(providerUid);
+    if (!provider) return jsonError(c, GrpcCode.INVALID_ARGUMENT, "identity provider not found");
+    if (provider.type !== "OAUTH2") return jsonError(c, GrpcCode.INVALID_ARGUMENT, "unsupported identity provider type");
+
+    let providerConfig: unknown = {};
+    try {
+      providerConfig = JSON.parse(provider.config);
+    } catch {
+      return jsonError(c, GrpcCode.INTERNAL, "invalid identity provider config");
+    }
+    const oauth2Config = parseOAuth2Config(providerConfig);
+    if (!oauth2Config) return jsonError(c, GrpcCode.INTERNAL, "invalid identity provider config");
+
+    let oauthAccessToken = "";
+    try {
+      oauthAccessToken = await exchangeOAuth2Token({
+        config: oauth2Config,
+        redirectUri: body.redirectUri,
+        code: body.code,
+        codeVerifier: body.codeVerifier,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "failed to exchange token";
+      return jsonError(c, GrpcCode.INTERNAL, message);
+    }
+
+    let userInfo: { identifier: string };
+    try {
+      userInfo = await fetchOAuth2UserInfo({
+        config: oauth2Config,
+        accessToken: oauthAccessToken,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "failed to get user info";
+      return jsonError(c, GrpcCode.INTERNAL, message);
+    }
+
+    if (provider.identifier_filter) {
+      let regex: RegExp;
+      try {
+        regex = new RegExp(provider.identifier_filter);
+      } catch {
+        return jsonError(c, GrpcCode.INTERNAL, "invalid identity provider identifier filter");
+      }
+      if (!regex.test(userInfo.identifier)) {
+        return jsonError(c, GrpcCode.PERMISSION_DENIED, "identifier is not allowed");
+      }
+    }
+
+    const existingForUser = await repo.getUserIdentity(userId, providerUid);
+    if (existingForUser) {
+      return jsonError(c, GrpcCode.ALREADY_EXISTS, "identity provider already linked");
+    }
+    const existingForIdentity = await repo.getUserIdentityByProviderExternUid(providerUid, userInfo.identifier);
+    if (existingForIdentity && existingForIdentity.user_id !== userId) {
+      return jsonError(c, GrpcCode.ALREADY_EXISTS, "identity already linked to another user");
+    }
+
+    const row = await repo.upsertUserIdentity(userId, providerUid, userInfo.identifier);
+    return c.json({
+      name: `users/${username}/linkedIdentities/${encodeURIComponent(row.provider)}`,
+      idpName: `identity-providers/${encodeURIComponent(row.provider)}`,
+      externUid: row.extern_uid,
     });
   });
 

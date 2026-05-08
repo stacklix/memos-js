@@ -1,10 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { apiJson } from "../helpers/http.js";
 import { createTestApp } from "../helpers/test-app.js";
 import { postFirstUser, postMemo, signIn } from "../helpers/seed.js";
 import { GrpcCode } from "../../server/lib/grpc-status.js";
 
 describe("integration: users extras (shortcuts, PAT, webhooks, notifications)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("shortcuts CRUD round-trip", async () => {
     const app = createTestApp();
     await postFirstUser(app, { username: "sc", password: "secret123", role: "USER" });
@@ -107,6 +111,79 @@ describe("integration: users extras (shortcuts, PAT, webhooks, notifications)", 
     const res = await apiJson(app, "/api/v1/users/ntf/notifications", { bearer: accessToken });
     expect(res.status).toBe(200);
     expect(Array.isArray((res.body as { notifications: unknown[] }).notifications)).toBe(true);
+  });
+
+  it("links an OAuth identity to the current user", async () => {
+    const app = createTestApp();
+    await postFirstUser(app, { username: "idpadmin", password: "secret123", role: "ADMIN" });
+    const { accessToken } = await signIn(app, "idpadmin", "secret123");
+
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url === "https://idp.example/token") {
+        expect(init?.method).toBe("POST");
+        return new Response(JSON.stringify({ access_token: "oauth-token" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url === "https://idp.example/userinfo") {
+        expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer oauth-token");
+        return new Response(JSON.stringify({ sub: "extern-1", name: "Extern User", email: "extern@example.com" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+
+    const createProvider = await apiJson(app, "/api/v1/identity-providers", {
+      method: "POST",
+      bearer: accessToken,
+      json: {
+        identityProviderId: "oauth-test",
+        identityProvider: {
+          title: "OAuth Test",
+          type: "OAUTH2",
+          config: {
+            oauth2Config: {
+              clientId: "client-id",
+              clientSecret: "client-secret",
+              authUrl: "https://idp.example/auth",
+              tokenUrl: "https://idp.example/token",
+              userInfoUrl: "https://idp.example/userinfo",
+              scopes: ["openid"],
+              fieldMapping: {
+                identifier: "sub",
+                displayName: "name",
+                email: "email",
+                avatarUrl: "",
+              },
+            },
+          },
+        },
+      },
+    });
+    expect(createProvider.status).toBe(200);
+
+    const linked = await apiJson<{ name: string; idpName: string; externUid: string }>(app, "/api/v1/users/idpadmin/linkedIdentities", {
+      method: "POST",
+      bearer: accessToken,
+      json: {
+        idpName: "identity-providers/oauth-test",
+        code: "oauth-code",
+        redirectUri: "http://localhost/auth/callback",
+        codeVerifier: "verifier",
+      },
+    });
+
+    expect(linked.status).toBe(200);
+    expect(linked.body).toMatchObject({
+      name: "users/idpadmin/linkedIdentities/oauth-test",
+      idpName: "identity-providers/oauth-test",
+      externUid: "extern-1",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("returns INVALID_ARGUMENT for malformed pageToken on user settings/webhooks/shortcuts", async () => {
