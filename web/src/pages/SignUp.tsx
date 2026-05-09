@@ -30,6 +30,7 @@ const SignUp = () => {
   const [searchParams] = useSearchParams();
   const redirectTarget = getSafeRedirectPath(searchParams.get(AUTH_REDIRECT_PARAM));
   const signInPath = searchParams.toString() ? `${ROUTES.AUTH}?${searchParams.toString()}` : ROUTES.AUTH;
+  const canUsePasswordSignUp = !instanceGeneralSetting.disallowUserRegistration && !instanceGeneralSetting.disallowPasswordAuth;
 
   const handleUsernameInputChanged = (e: React.ChangeEvent<HTMLInputElement>) => {
     const text = e.target.value as string;
@@ -64,7 +65,10 @@ const SignUp = () => {
       });
       await userServiceClient.createUser({ user });
       const response = await authServiceClient.signIn({
-        passwordCredentials: { username, password },
+        credentials: {
+          case: "passwordCredentials",
+          value: { username, password },
+        },
       });
       // Store access token from login response
       if (response.accessToken) {
@@ -74,7 +78,7 @@ const SignUp = () => {
       await initAuth();
       // Refetch instance profile to update the initialized status
       await initInstance();
-      navigateTo(redirectTarget || ROUTES.ROOT, { replace: true });
+      navigateTo(redirectTarget || ROUTES.HOME, { replace: true });
     } catch (error: unknown) {
       handleError(error, toast.error, {
         fallbackMessage: "Sign up failed",
@@ -90,7 +94,7 @@ const SignUp = () => {
           <img className="h-14 w-auto rounded-full shadow" src={instanceGeneralSetting.customProfile?.logoUrl || "/logo.webp"} alt="" />
           <p className="ml-2 text-5xl text-foreground opacity-80">{instanceGeneralSetting.customProfile?.title || "Memos"}</p>
         </div>
-        {!instanceGeneralSetting.disallowUserRegistration ? (
+        {canUsePasswordSignUp ? (
           <>
             <p className="w-full text-2xl mt-2 text-muted-foreground">{t("auth.create-your-account")}</p>
             <form className="w-full mt-2" onSubmit={handleFormSubmit}>
@@ -134,6 +138,8 @@ const SignUp = () => {
               </div>
             </form>
           </>
+        ) : instanceGeneralSetting.disallowPasswordAuth ? (
+          <p className="w-full text-2xl mt-2 text-muted-foreground">Password sign up is not allowed.</p>
         ) : (
           <p className="w-full text-2xl mt-2 text-muted-foreground">Sign up is not allowed.</p>
         )}

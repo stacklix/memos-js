@@ -15,7 +15,7 @@ const App = () => {
   useUserLocale();
   useUserTheme();
 
-  // Clean up stale / expired OAuth state entries on mount to prevent leakage.
+  // Clean up expired OAuth states on app initialization
   useEffect(() => {
     cleanupExpiredOAuthState();
   }, []);

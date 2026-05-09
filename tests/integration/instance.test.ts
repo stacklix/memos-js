@@ -4,6 +4,13 @@ import { createTestApp } from "../helpers/test-app.js";
 import { seedAdmin } from "../helpers/seed.js";
 
 describe("integration: instance", () => {
+  it("GET instance/profile includes golang commit field", async () => {
+    const app = createTestApp();
+    const res = await apiJson<{ commit?: string }>(app, "/api/v1/instance/profile");
+    expect(res.status).toBe(200);
+    expect(res.body.commit).toBe("");
+  });
+
   it("PATCH instance/settings/TAGS then GET returns persisted tags", async () => {
     const app = createTestApp();
     const { accessToken } = await seedAdmin(app, { username: "adm", password: "secret123" });

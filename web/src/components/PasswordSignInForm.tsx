@@ -54,14 +54,17 @@ function PasswordSignInForm({ redirectPath }: PasswordSignInFormProps) {
     try {
       actionBtnLoadingState.setLoading();
       const response = await authServiceClient.signIn({
-        passwordCredentials: { username, password },
+        credentials: {
+          case: "passwordCredentials",
+          value: { username, password },
+        },
       });
       // Store access token from login response
       if (response.accessToken) {
         setAccessToken(response.accessToken, response.accessTokenExpiresAt ? timestampDate(response.accessTokenExpiresAt) : undefined);
       }
       await initialize();
-      navigateTo(redirectPath || ROUTES.ROOT, { replace: true });
+      navigateTo(redirectPath || ROUTES.HOME, { replace: true });
     } catch (error: unknown) {
       handleError(error, toast.error, {
         fallbackMessage: "Failed to sign in.",

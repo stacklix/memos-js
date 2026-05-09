@@ -2,6 +2,7 @@ import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { memoServiceClient } from "@/connect";
+import type { Attachment } from "@/types/proto/api/v1/attachment_service_pb";
 import type { MemoShare } from "@/types/proto/api/v1/memo_service_pb";
 import {
   CreateMemoShareRequestSchema,
@@ -91,7 +92,10 @@ export function getShareToken(share: MemoShare): string {
   return share.name.split("/").pop() ?? "";
 }
 
-/** File attachments are not served by this deployment. */
-export function withShareAttachmentLinks<T extends { externalLink?: string }>(attachments: T[], _token: string): T[] {
-  return attachments;
+/** Rewrites attachment URLs to include a share token for unauthenticated access. */
+export function withShareAttachmentLinks(attachments: Attachment[], token: string): Attachment[] {
+  return attachments.map((a) => {
+    if (a.externalLink) return a;
+    return { ...a, externalLink: `${window.location.origin}/file/${a.name}/${a.filename}?share_token=${encodeURIComponent(token)}` };
+  });
 }

@@ -14,6 +14,14 @@ export {
   isPublicRoute,
 } from "./redirect-safety";
 
+/**
+ * Imperatively redirects the current document to the auth entry page, preserving
+ * the current URL as the `redirect` target. Intended for hard-fail auth paths
+ * (e.g. a refresh-token request returning 401 from a non-React context).
+ *
+ * No-ops when the user is already on an auth page or on a public page that
+ * does not require authentication, unless `forceRedirect` is set.
+ */
 export function redirectOnAuthFailure(
   forceRedirect = false,
   options?: {

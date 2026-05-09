@@ -27,10 +27,10 @@ const AuthCallback = () => {
   });
 
   useEffect(() => {
-    if (handledRef.current) {
+    if (!isInitialized) {
       return;
     }
-    if (!isInitialized) {
+    if (handledRef.current) {
       return;
     }
     // Check for OAuth error response first (e.g., user denied access)
@@ -76,7 +76,7 @@ const AuthCallback = () => {
       return;
     }
 
-    const { identityProviderName, flowMode, returnUrl, linkingUserName, codeVerifier } = validatedState;
+    const { flowMode, identityProviderName, returnUrl, linkingUserName, codeVerifier } = validatedState;
     const redirectUri = absolutifyLink("/auth/callback");
     handledRef.current = true;
 
@@ -98,11 +98,14 @@ const AuthCallback = () => {
           });
         } else {
           const response = await authServiceClient.signIn({
-            ssoCredentials: {
-              idpName: identityProviderName,
-              code,
-              redirectUri,
-              codeVerifier: codeVerifier || "",
+            credentials: {
+              case: "ssoCredentials",
+              value: {
+                idpName: identityProviderName,
+                code,
+                redirectUri,
+                codeVerifier: codeVerifier || "", // Pass PKCE code_verifier for token exchange
+              },
             },
           });
           // Store access token from login response
@@ -115,6 +118,9 @@ const AuthCallback = () => {
           errorMessage: "",
         });
         await initialize();
+        // Defense-in-depth: even though `returnUrl` was sanitized before being
+        // stored (see storeOAuthState in SignIn), re-validate on the way out so
+        // a corrupted state entry can never be used for an open redirect.
         navigateTo(getSafeRedirectPath(returnUrl) ?? ROUTES.HOME);
       } catch (error: unknown) {
         handleError(error, () => {}, {

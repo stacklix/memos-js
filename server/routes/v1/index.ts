@@ -9,11 +9,12 @@ import { apiCors } from "../../middleware/cors.js";
 import { debugHttpLog } from "../../middleware/debug-http.js";
 import { createAuthRoutes } from "./auth.js";
 import { createInstanceRoutes } from "./instance.js";
-import { createUserRoutes } from "./users.js";
+import { createUserActionRoutes, createUserRoutes } from "./users.js";
 import { createMemoRoutes, createShareByTokenRoute } from "./memos.js";
-import { createAttachmentRoutes } from "./attachments.js";
+import { createAttachmentActionRoutes, createAttachmentRoutes } from "./attachments.js";
 import { createIdentityProviderRoutes } from "./idp.js";
 import { createSseRoutes } from "./sse.js";
+import { createAIActionRoutes } from "./ai.js";
 import { userStatsFieldsFromMemoRows } from "../../lib/user-stats-from-memos.js";
 
 export function createV1App(deps: AppDeps) {
@@ -104,6 +105,10 @@ export function createV1App(deps: AppDeps) {
     }
     return c.json({ stats });
   });
+
+  v1.route("/", createAIActionRoutes(deps));
+  v1.route("/", createUserActionRoutes(deps));
+  v1.route("/", createAttachmentActionRoutes(deps));
 
   v1.route("/auth", createAuthRoutes(deps));
   v1.route("/instance", createInstanceRoutes(deps));

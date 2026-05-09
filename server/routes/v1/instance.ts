@@ -90,6 +90,7 @@ export function createInstanceRoutes(deps: AppDeps) {
       version: deps.instanceVersion,
       demo: deps.demo,
       instanceUrl: deps.instanceUrl,
+      commit: "",
       admin: admin ? userToJson(admin, viewer) : null,
     });
   });

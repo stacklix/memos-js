@@ -2,6 +2,7 @@ import type { DbAttachmentRow, DbMemoRow, DbUserRow } from "../db/repository.js"
 import type { AuthPrincipal } from "../types/auth.js";
 import { deriveMemoProperty } from "../services/memo-content-props.js";
 import { extractTags } from "../services/markdown.js";
+import { parseUserAvatarDataUri } from "./user-avatar-data-uri.js";
 
 /** Proto JSON / picky clients (e.g. Swift OpenAPI date-time) often match this shape; see `auth/signin` accessTokenExpiresAt. */
 export function protoJsonTimestamp(iso: string): string {
@@ -28,13 +29,18 @@ function canViewerSeeUserEmail(viewer: AuthPrincipal | null, target: DbUserRow):
  * (same as golang `canViewerAccessUserEmail`).
  */
 export function userToJson(u: DbUserRow, viewer: AuthPrincipal | null) {
+  const storedAvatarUrl = u.avatar_url ?? "";
+  const avatarUrl =
+    storedAvatarUrl && parseUserAvatarDataUri(storedAvatarUrl)
+      ? `/file/users/${encodeURIComponent(u.username)}/avatar`
+      : storedAvatarUrl;
   return {
     name: `users/${u.username}`,
     role: u.role === "ADMIN" ? "ADMIN" : "USER",
     username: u.username,
     email: canViewerSeeUserEmail(viewer, u) ? (u.email ?? "") : "",
     displayName: u.display_name ?? "",
-    avatarUrl: u.avatar_url ?? "",
+    avatarUrl,
     description: u.description ?? "",
     state: u.state,
     createTime: protoJsonTimestamp(u.create_time),
@@ -44,7 +50,12 @@ export function userToJson(u: DbUserRow, viewer: AuthPrincipal | null) {
 
 export function memoToJson(
   m: DbMemoRow,
-  extras?: { tags?: string[]; attachments?: ReturnType<typeof attachmentToJson>[] },
+  extras?: {
+    tags?: string[];
+    attachments?: ReturnType<typeof attachmentToJson>[];
+    relations?: unknown[];
+    reactions?: unknown[];
+  },
 ) {
   const lat = m.location_latitude;
   const lng = m.location_longitude;
@@ -69,8 +80,8 @@ export function memoToJson(
       (m.payload_tags.length > 0 ? m.payload_tags : extractTags(m.content)),
     pinned: Boolean(m.pinned),
     attachments: extras?.attachments ?? [],
-    relations: [],
-    reactions: [],
+    relations: extras?.relations ?? [],
+    reactions: extras?.reactions ?? [],
     property: m.payload_property ?? deriveMemoProperty(m.content),
     snippet: m.snippet ?? "",
     parent: m.parent_memo_id ? `memos/${m.parent_memo_id}` : undefined,

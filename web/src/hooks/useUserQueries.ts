@@ -18,7 +18,7 @@ export const userKeys = {
   currentUser: () => [...userKeys.all, "current"] as const,
   shortcuts: () => [...userKeys.all, "shortcuts"] as const,
   notifications: () => [...userKeys.all, "notifications"] as const,
-  byNames: (names: string[]) => [...userKeys.all, "byNames", ...names.sort()] as const,
+  byNames: (names: string[]) => [...userKeys.all, "byNames", ...[...names].sort()] as const,
   byUsernames: (usernames: string[]) => [...userKeys.all, "byUsernames", ...[...usernames].sort()] as const,
 };
 
@@ -49,15 +49,12 @@ export function useUserStats(username?: string) {
 }
 
 export function useShortcuts() {
-  const currentUser = useCurrentUser();
   return useQuery({
     queryKey: userKeys.shortcuts(),
     queryFn: async () => {
-      if (!currentUser?.name) return [];
-      const { shortcuts } = await shortcutServiceClient.listShortcuts({ parent: currentUser.name });
+      const { shortcuts } = await shortcutServiceClient.listShortcuts({});
       return shortcuts;
     },
-    enabled: !!currentUser?.name,
   });
 }
 

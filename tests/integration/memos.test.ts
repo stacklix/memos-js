@@ -306,6 +306,73 @@ describe("integration: memos", () => {
     expect(get.body.relations[0].relatedMemo.name).toBe(nameB);
   });
 
+  it("GET memo includes relations and reactions like golang responses", async () => {
+    const app = createTestApp();
+    await postFirstUser(app, { username: "fullmemo", password: "secret123", role: "USER" });
+    const { accessToken } = await signIn(app, "fullmemo", "secret123");
+    const a = await postMemo(app, accessToken, { content: "A", visibility: "PRIVATE" });
+    const b = await postMemo(app, accessToken, { content: "B", visibility: "PRIVATE" });
+    const idA = memoIdFromName((a.body as { name: string }).name);
+    const nameB = (b.body as { name: string }).name;
+
+    await apiJson(app, `/api/v1/memos/${encodeURIComponent(idA)}/relations`, {
+      method: "PATCH",
+      bearer: accessToken,
+      json: { relations: [{ relatedMemo: { name: nameB }, type: "REFERENCE" }] },
+    });
+    await apiJson(app, `/api/v1/memos/${encodeURIComponent(idA)}/reactions`, {
+      method: "POST",
+      bearer: accessToken,
+      json: { reaction: { reactionType: "❤️" } },
+    });
+
+    const got = await apiJson<{
+      relations: { relatedMemo: { name: string }; type: string }[];
+      reactions: { reactionType: string; creator: string }[];
+    }>(app, `/api/v1/memos/${encodeURIComponent(idA)}`, { bearer: accessToken });
+
+    expect(got.status).toBe(200);
+    expect(got.body.relations.map((r) => r.relatedMemo.name)).toEqual([nameB]);
+    expect(got.body.reactions.map((r) => [r.creator, r.reactionType])).toEqual([
+      ["users/fullmemo", "❤️"],
+    ]);
+  });
+
+  it("POST memo attaches existing attachments and relations", async () => {
+    const app = createTestApp();
+    await postFirstUser(app, { username: "createfull", password: "secret123", role: "USER" });
+    const { accessToken } = await signIn(app, "createfull", "secret123");
+    const related = await postMemo(app, accessToken, { content: "related", visibility: "PRIVATE" });
+    const relatedName = (related.body as { name: string }).name;
+    const attachment = await apiJson<{ name: string }>(app, "/api/v1/attachments", {
+      method: "POST",
+      bearer: accessToken,
+      json: {
+        attachment: {
+          filename: "createfull.txt",
+          content: "Y3JlYXRl",
+          type: "text/plain",
+        },
+      },
+    });
+    expect(attachment.status).toBe(200);
+
+    const created = await postMemo(app, accessToken, {
+      content: "with extras",
+      visibility: "PRIVATE",
+      attachments: [{ name: attachment.body.name }],
+      relations: [{ relatedMemo: { name: relatedName }, type: "REFERENCE" }],
+    });
+
+    expect(created.status).toBe(200);
+    const body = created.body as {
+      attachments: { name: string }[];
+      relations: { relatedMemo: { name: string }; type: string }[];
+    };
+    expect(body.attachments.map((a) => a.name)).toEqual([attachment.body.name]);
+    expect(body.relations.map((r) => r.relatedMemo.name)).toEqual([relatedName]);
+  });
+
   it("POST share then GET shares list then anonymous GET /shares/:token returns memo", async () => {
     const app = createTestApp();
     await postFirstUser(app, { username: "shr", password: "secret123", role: "USER" });

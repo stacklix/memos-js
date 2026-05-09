@@ -1141,3 +1141,33 @@ export function createUserRoutes(deps: AppDeps) {
 
   return r;
 }
+
+export function createUserActionRoutes(deps: AppDeps) {
+  const r = new Hono<{ Variables: ApiVariables }>();
+  const repo = createRepository(deps.sql);
+
+  r.post("/users:batchGet", async (c) => {
+    const viewer = c.get("auth");
+    type Body = { usernames?: string[] };
+    let body: Body;
+    try {
+      body = (await c.req.json()) as Body;
+    } catch {
+      return jsonError(c, GrpcCode.INVALID_ARGUMENT, "invalid json");
+    }
+    const rawUsernames = Array.isArray(body.usernames) ? body.usernames : [];
+    if (rawUsernames.length > 100) {
+      return jsonError(c, GrpcCode.INVALID_ARGUMENT, "too many usernames; max 100");
+    }
+    const usernames = rawUsernames.map((u) =>
+      typeof u === "string" && u.startsWith("users/") ? u.slice("users/".length) : u,
+    );
+    const users = await Promise.all(usernames.map((u) => repo.getUser(u)));
+    const active = users.filter(
+      (u): u is NonNullable<typeof u> => u !== null && u !== undefined && u.state === "NORMAL",
+    );
+    return c.json({ users: active.map((u) => userToJson(u, viewer)) });
+  });
+
+  return r;
+}

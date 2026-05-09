@@ -20,7 +20,7 @@ const Inboxes = () => {
   // Fetch notifications with React Query
   const { data: fetchedNotifications = [] } = useNotifications();
 
-  const allNotifications: UserNotification[] = sortBy(fetchedNotifications, (notification: UserNotification) => {
+  const allNotifications = sortBy(fetchedNotifications, (notification: UserNotification) => {
     return -((notification.createTime ? timestampDate(notification.createTime) : undefined)?.getTime() || 0);
   });
 
