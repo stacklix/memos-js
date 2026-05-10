@@ -15,7 +15,7 @@ import { useDialog } from "@/hooks/useDialog";
 import { useDeleteUser, useListUsers } from "@/hooks/useUserQueries";
 import { handleError } from "@/lib/error";
 import { State } from "@/types/proto/api/v1/common_pb";
-import { User, User_Role } from "@/types/proto/api/v1/user_service_pb";
+import { User, User_Role, UserSchema } from "@/types/proto/api/v1/user_service_pb";
 import { useTranslate } from "@/utils/i18n";
 import CreateUserDialog from "../CreateUserDialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "../ui/dropdown-menu";
@@ -55,10 +55,10 @@ const MemberSection = () => {
     const username = archiveTarget.username;
     try {
       await userServiceClient.updateUser({
-        user: {
+        user: create(UserSchema, {
           name: archiveTarget.name,
           state: State.ARCHIVED,
-        },
+        }),
         updateMask: create(FieldMaskSchema, { paths: ["state"] }),
       });
       toast.success(t("setting.member.archive-success", { username }));
@@ -73,10 +73,10 @@ const MemberSection = () => {
     const { username } = user;
     try {
       await userServiceClient.updateUser({
-        user: {
+        user: create(UserSchema, {
           name: user.name,
           state: State.NORMAL,
-        },
+        }),
         updateMask: create(FieldMaskSchema, { paths: ["state"] }),
       });
       toast.success(t("setting.member.restore-success", { username }));

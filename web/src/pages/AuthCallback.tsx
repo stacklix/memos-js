@@ -98,14 +98,11 @@ const AuthCallback = () => {
           });
         } else {
           const response = await authServiceClient.signIn({
-            credentials: {
-              case: "ssoCredentials",
-              value: {
-                idpName: identityProviderName,
-                code,
-                redirectUri,
-                codeVerifier: codeVerifier || "", // Pass PKCE code_verifier for token exchange
-              },
+            ssoCredentials: {
+              idpName: identityProviderName,
+              code,
+              redirectUri,
+              codeVerifier: codeVerifier || "", // Pass PKCE code_verifier for token exchange
             },
           });
           // Store access token from login response

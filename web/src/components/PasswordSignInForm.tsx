@@ -54,10 +54,7 @@ function PasswordSignInForm({ redirectPath }: PasswordSignInFormProps) {
     try {
       actionBtnLoadingState.setLoading();
       const response = await authServiceClient.signIn({
-        credentials: {
-          case: "passwordCredentials",
-          value: { username, password },
-        },
+        passwordCredentials: { username, password },
       });
       // Store access token from login response
       if (response.accessToken) {

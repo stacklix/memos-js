@@ -65,10 +65,7 @@ const SignUp = () => {
       });
       await userServiceClient.createUser({ user });
       const response = await authServiceClient.signIn({
-        credentials: {
-          case: "passwordCredentials",
-          value: { username, password },
-        },
+        passwordCredentials: { username, password },
       });
       // Store access token from login response
       if (response.accessToken) {
