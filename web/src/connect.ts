@@ -541,7 +541,7 @@ export const instanceServiceClient = {
     }
     const res = await apiFetch(`/instance/settings/${encodeURIComponent(key)}`, {
       method: "PATCH",
-      body: JSON.stringify({ setting: settingBody }),
+      body: JSON.stringify(settingBody),
     });
     await throwUnlessOk(res);
     const j = (await readJson(res)) as Record<string, unknown>;

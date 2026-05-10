@@ -1,124 +1,52 @@
-# Current Branch (`master`) vs `golang` Branch: Differences
+# TypeScript Branch vs `golang` Branch: Current Differences
 
-> Updated: 2026-05-06. Baseline: `master` vs `golang@9bf648ac` (v0.28.0).
+> Updated: 2026-05-10.
 >
-> **Excluded by design**:
-> - Instance `STORAGE` backend API + dynamic `supportedStorageTypes` frontend rendering
-> - SSE endpoint on Cloudflare Worker (CF streaming incompatible with long-lived SSE)
+> Baseline: `chore/golang-v0.28.0-alignment@e8d0ff21` vs `golang@9bf648ac` (v0.28.0).
+>
+> The `golang` branch is the API/proto reference. This document tracks known implementation gaps and intentional TypeScript/Worker differences; it is not permission to introduce new API drift.
 
----
+## Designed Differences
 
-## 1) Database Schema
+| Area | TypeScript branch | `golang` branch |
+| --- | --- | --- |
+| Backend runtime | Hono REST API, Node.js + SQLite, Cloudflare Workers + D1 | Go server with gRPC-Gateway REST + Connect |
+| Frontend hosting | `dist/public/` served by Node or Worker Static Assets | Go Echo fileserver |
+| Worker assets | Cloudflare `ASSETS.fetch` with `run_worker_first` | Not applicable |
+| Object storage | `DATABASE / LOCAL / S3 / R2` | `DATABASE / LOCAL / S3` |
+| SSE | Node-only; Worker SSE is excluded | Go server SSE |
 
-### `user_identity` table
+## Database
 
-`golang@9bf648ac` has `user_identity` in `store/migration/sqlite/LATEST.sql`. `master` has equivalent via `migrations/0002_user_identity.sql`:
+| Area | TypeScript branch | `golang` branch |
+| --- | --- | --- |
+| Schema source | Incremental `migrations/NNNN_*.sql` | `store/migration/sqlite/*` plus `LATEST.sql` |
+| Version tracking | `schema_migrations` table | No equivalent table |
+| Local runtime DB | SQLite file, default `data/memos.sqlite` | SQLite/PostgreSQL/MySQL support |
+| Worker DB | Cloudflare D1, migrated by Wrangler | Not applicable |
+| DDL style | Uses `IF NOT EXISTS` guards | Plain DDL |
 
-```sql
-CREATE TABLE user_identity (
-  id         INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id    INTEGER NOT NULL,
-  provider   TEXT    NOT NULL,
-  extern_uid TEXT    NOT NULL,
-  created_ts BIGINT  NOT NULL DEFAULT (strftime('%s', 'now')),
-  updated_ts BIGINT  NOT NULL DEFAULT (strftime('%s', 'now')),
-  UNIQUE (provider, extern_uid),
-  UNIQUE (user_id, provider)
-);
-CREATE INDEX idx_user_identity_user_id ON user_identity(user_id);
-```
+## Backend API
 
-### Migration mechanism
+| Area | TypeScript branch | `golang` branch |
+| --- | --- | --- |
+| Transport implementation | REST only: hand-written Hono routes under `/api/v1` | REST via gRPC-Gateway under `/api/v1`, plus Connect handlers |
+| Storage setting response | Adds `supportedStorageTypes`, can include `R2` | Fixed proto enum without R2 |
+| Memo / attachment filters | Implements a supported CEL-like subset | Full Go/proto behavior |
+| SSE route | Mounted only when Node enables SSE | Go server route is available |
 
-| | `master` | `golang` |
-|---|---|---|
-| Evolution | Incremental `migrations/NNNN_*.sql` | `store/migration/sqlite/*` dirs + `LATEST.sql` |
-| Version tracking | `schema_migrations` table | None |
+## Frontend
 
-### DDL guards
+Current frontend differences are primarily adapter/runtime related:
 
-`master` uses `CREATE TABLE IF NOT EXISTS` / `CREATE INDEX IF NOT EXISTS`. `golang` uses plain `CREATE TABLE` / `CREATE INDEX`.
+| File / area | Difference |
+| --- | --- |
+| `web/src/connect.ts` | Large custom REST adapter that converts frontend service calls to the TypeScript backend's JSON API. |
+| `web/src/lib/proto-adapters.ts` | Converts REST responses into the existing frontend model types used by hooks/components. |
+| Storage settings | `InstanceContext.tsx` and `StorageSection.tsx` support dynamic storage types and R2. |
+| User menu | Live SSE connection indicator is removed because SSE is not available on Worker. |
 
----
+## Still Excluded
 
-## 2) Backend API (`server/routes/v1`)
-
-### API transport strategy
-
-`master` uses **custom REST** — `web/src/connect.ts` (~1110 lines) translates gRPC-style service calls into plain JSON REST.
-
-`golang` uses **Connect gRPC** via `@connectrpc/connect-web` (~203 lines); native binary+JSON Connect protocol.
-
-### Missing endpoints in `master`
-
-| Method | Path | Note |
-|---|---|---|
-| `GET` | `/api/v1/sse` | Node.js only (`enableSSE: true`); CF Worker excluded |
-
-### Path differences
-
-| Resource | `master` path | `golang` path |
-|---|---|---|
-| Instance settings (GET) | `GET /api/v1/instance/settings/{KEY}` | `GET /api/v1/{name=instance/settings/*}` |
-| Instance settings (PATCH) | `PATCH /api/v1/instance/settings/{KEY}` | `PATCH /api/v1/{setting.name=instance/settings/*}` |
-
-### Semantic differences
-
-| Module | `master` | `golang` |
-|---|---|---|
-| **Instance `STORAGE`** | Dynamic `supportedStorageTypes` includes `R2` | Fixed enum `DATABASE/LOCAL/S3` — **excluded** |
-| **Memo `filter` / CEL** | Subset in `server/lib/memo-filter.ts` | Full CEL compilation |
-
----
-
-## 3) Frontend (`web/`)
-
-### Pages with differences (`web/src/pages/`)
-
-| Page | Difference |
-|---|---|
-| `SignIn.tsx` | `master` delegates to `SsoSignInForm` component; golang had inline SSO logic (~84 lines) |
-| `MemoDetail.tsx` | `master` removes `MentionResolutionProvider`, `shareImageDialogOpen` state, `onShareImageOpen` prop (~69 lines) |
-| `Setting.tsx` | `master` adds `ai` section with `AISection`; golang had simpler structure |
-| `AuthCallback.tsx` | `ssoCredentials` object vs golang's `credentials.case/value` shape (~13 lines) |
-| `Inboxes.tsx` | `master` removes `MemoMentionMessage` (~4 lines) |
-| `SignUp.tsx` | `passwordCredentials` object vs golang's `credentials.case/value` (~5 lines) |
-
-### `master`-only components
-
-| Component | Note |
-|---|---|
-| `MemoAttachment.tsx` | Single attachment display |
-| `MemoResource.tsx` | Flat-renders memo's attachment list |
-| `SsoSignInForm.tsx` | SSO sign-in form |
-| `MemoActionMenu/MemoShareImageDialog.tsx` | Share-as-image dialog |
-| `MemoActionMenu/MemoShareImagePreview.tsx` | Image preview |
-| `MemoActionMenu/memoShareImage.ts` | Share image generation |
-| `MemoContent/constants.ts` | Content rendering constants |
-| `MemoEditor/hooks/useVoiceRecorder.ts` | Voice recorder hook |
-| `MemoEditor/services/` (6 files) | Service layer |
-| `MemoEditor/state/` (5 files) | State management |
-
----
-
-## 4) Runtime / Deployment
-
-| | `master` | `golang` |
-|---|---|---|
-| Frontend hosting | Worker `ASSETS` / Node `dist/public/` | Echo fileserver |
-| Primary DB | Node → SQLite; Worker → D1 (CF) | SQLite / PostgreSQL / MySQL |
-| Object storage | `DATABASE / LOCAL / S3 / R2` | `DATABASE / LOCAL / S3` (no R2) |
-| SSE | Node.js only | Unconditional |
-| MCP | Stateless at `/mcp` | Stateful sessions |
-
----
-
-## 5) golang forward commits (9bf648ac → 40fd700f)
-
-New changes in `golang` not yet in `master`:
-
-- `fix(fileserver): render SVG attachment previews`
-- `fix: remove duplicate Japanese locale keys`
-- `i18n: refine and normalize Japanese locale strings`
-- `chore(web): improve navigation accessibility`
-- `fix(frontend): restore sitemap and robots routes`
+- Backend/API support for R2 storage intentionally differs from upstream Go.
+- Cloudflare Worker SSE remains excluded because long-lived SSE streams are not a good fit for this Worker deployment path.

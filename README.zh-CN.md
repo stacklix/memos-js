@@ -84,20 +84,17 @@ npm run dev:worker
 - `action`：`migrate` / `empty` / `clear`
 - `target`：`sqlite` / `d1:local` / `d1:remote`（`remote` 仅用于 migrate）
 
-示例：
+| 目的 | 命令 |
+| --- | --- |
+| 执行本地 SQLite 迁移 | `npm run db:migrate:sqlite` |
+| 清空本地 SQLite 数据，保留表结构 | `npm run db:empty:sqlite` |
+| 删除本地 SQLite 数据库文件 | `npm run db:clear:sqlite` |
+| 执行本地 D1 迁移 | `npm run db:migrate:d1:local` |
+| 执行远程 D1 迁移 | `npm run db:migrate:d1:remote` |
+| 清空本地 D1 数据，保留表结构 | `npm run db:empty:d1:local` |
+| 删除本地 Wrangler 状态 | `npm run db:clear:d1:local` |
 
-```bash
-# SQLite
-npm run db:migrate:sqlite
-npm run db:empty:sqlite
-npm run db:clear:sqlite
-
-# D1
-npm run db:migrate:d1:local
-npm run db:migrate:d1:remote
-npm run db:empty:d1:local
-npm run db:clear:d1:local
-```
+执行 `empty` / `clear` 前请先停掉对应开发服务。SQLite 的 `empty` / `clear` 和本地 D1 的 `clear` 支持加 `-- --yes` 非交互执行。
 
 ## 迁移（Node 与 D1）
 
@@ -170,7 +167,7 @@ npm run deploy:worker
 
 ## API 契约说明
 
-API/proto 对齐时，以仓库 `origin/master` 为准，重点看：
+API/proto 对齐时，以仓库 `golang` 分支为准，重点看：
 
 - `proto/`
 - Go 树下的 `server/` 与 `plugin/`

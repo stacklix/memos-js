@@ -19,10 +19,8 @@ describe("integration: instance", () => {
       method: "PATCH",
       bearer: accessToken,
       json: {
-        setting: {
-          tagsSetting: {
-            tags: { demo: { blurContent: true, backgroundColor: { red: 1, green: 0, blue: 0 } } },
-          },
+        tagsSetting: {
+          tags: { demo: { blurContent: true, backgroundColor: { red: 1, green: 0, blue: 0 } } },
         },
       },
     });
@@ -42,11 +40,9 @@ describe("integration: instance", () => {
       method: "PATCH",
       bearer: accessToken,
       json: {
-        setting: {
-          generalSetting: {
-            disallowUserRegistration: true,
-            disallowPasswordAuth: false,
-          },
+        generalSetting: {
+          disallowUserRegistration: true,
+          disallowPasswordAuth: false,
         },
       },
     });
@@ -70,11 +66,9 @@ describe("integration: instance", () => {
       method: "PATCH",
       bearer: accessToken,
       json: {
-        setting: {
-          generalSetting: {
-            additionalScript: "console.log('hello')",
-            additionalStyle: "body { color: red; }",
-          },
+        generalSetting: {
+          additionalScript: "console.log('hello')",
+          additionalStyle: "body { color: red; }",
         },
       },
     });
@@ -97,10 +91,8 @@ describe("integration: instance", () => {
       method: "PATCH",
       bearer: accessToken,
       json: {
-        setting: {
-          generalSetting: {
-            customProfile: { title: "My Memos", description: "A personal memo app", logoUrl: "/logo.png" },
-          },
+        generalSetting: {
+          customProfile: { title: "My Memos", description: "A personal memo app", logoUrl: "/logo.png" },
         },
       },
     });
@@ -123,10 +115,8 @@ describe("integration: instance", () => {
       method: "PATCH",
       bearer: accessToken,
       json: {
-        setting: {
-          generalSetting: {
-            weekStartDayOffset: 1,
-          },
+        generalSetting: {
+          weekStartDayOffset: 1,
         },
       },
     });
@@ -147,13 +137,11 @@ describe("integration: instance", () => {
       method: "PATCH",
       bearer: accessToken,
       json: {
-        setting: {
-          memoRelatedSetting: {
-            displayWithUpdateTime: true,
-            contentLengthLimit: 100,
-            enableDoubleClickEdit: false,
-            reactions: [],
-          },
+        memoRelatedSetting: {
+          displayWithUpdateTime: true,
+          contentLengthLimit: 100,
+          enableDoubleClickEdit: false,
+          reactions: [],
         },
       },
     });
@@ -191,17 +179,15 @@ describe("integration: instance", () => {
       method: "PATCH",
       bearer: accessToken,
       json: {
-        setting: {
-          notificationSetting: {
-            email: {
-              enabled: true,
-              smtpHost: "smtp.example.com",
-              smtpPort: 587,
-              smtpUsername: "bot@example.com",
-              smtpPassword: "secret-value",
-              fromEmail: "bot@example.com",
-              useTls: true,
-            },
+        notificationSetting: {
+          email: {
+            enabled: true,
+            smtpHost: "smtp.example.com",
+            smtpPort: 587,
+            smtpUsername: "bot@example.com",
+            smtpPassword: "secret-value",
+            fromEmail: "bot@example.com",
+            useTls: true,
           },
         },
       },

@@ -413,20 +413,18 @@ describe("integration: users extras (shortcuts, PAT, webhooks, notifications)", 
       method: "PATCH",
       bearer: ownerToken,
       json: {
-        setting: {
-          notificationSetting: {
-            email: {
-              enabled: true,
-              smtpHost: "smtp.example.com",
-              smtpPort: 587,
-              smtpUsername: "bot@example.com",
-              smtpPassword: "secret",
-              fromEmail: "bot@example.com",
-              fromName: "memos bot",
-              replyTo: "noreply@example.com",
-              useTls: true,
-              useSsl: false,
-            },
+        notificationSetting: {
+          email: {
+            enabled: true,
+            smtpHost: "smtp.example.com",
+            smtpPort: 587,
+            smtpUsername: "bot@example.com",
+            smtpPassword: "secret",
+            fromEmail: "bot@example.com",
+            fromName: "memos bot",
+            replyTo: "noreply@example.com",
+            useTls: true,
+            useSsl: false,
           },
         },
       },
@@ -485,17 +483,15 @@ describe("integration: users extras (shortcuts, PAT, webhooks, notifications)", 
       method: "PATCH",
       bearer: ownerToken,
       json: {
-        setting: {
-          notificationSetting: {
-            email: {
-              enabled: true,
-              smtpHost: "smtp.example.com",
-              smtpPort: 587,
-              smtpUsername: "bot@example.com",
-              smtpPassword: "original-password",
-              fromEmail: "bot@example.com",
-              useTls: true,
-            },
+        notificationSetting: {
+          email: {
+            enabled: true,
+            smtpHost: "smtp.example.com",
+            smtpPort: 587,
+            smtpUsername: "bot@example.com",
+            smtpPassword: "original-password",
+            fromEmail: "bot@example.com",
+            useTls: true,
           },
         },
       },
@@ -505,12 +501,10 @@ describe("integration: users extras (shortcuts, PAT, webhooks, notifications)", 
       method: "PATCH",
       bearer: ownerToken,
       json: {
-        setting: {
-          notificationSetting: {
-            email: {
-              smtpPassword: "",
-              smtpHost: "smtp2.example.com",
-            },
+        notificationSetting: {
+          email: {
+            smtpPassword: "",
+            smtpHost: "smtp2.example.com",
           },
         },
       },
