@@ -144,16 +144,18 @@ npm run db:migrate:d1:remote
 
 4. Deploy:
 
+**One-step full release** (same as upload + 100% promote):
+
 ```bash
-npx wrangler login
-npm run deploy:worker
+npm run deploy:worker:full
 ```
 
-Current deploy scripts in `package.json`:
+**Two-step** (upload, then route traffic in `promote`; 100% = full, under 100% = canary — interactive or `--percentage`, see `wrangler versions deploy --help`):
 
-- `npm run deploy:worker` -> versions upload
-- `npm run deploy:worker:promote` -> versions deploy
-- `npm run deploy:worker:full` -> full deploy
+```bash
+npm run deploy:worker
+npm run deploy:worker:promote
+```
 
 ## Environment variables (Node, selected)
 

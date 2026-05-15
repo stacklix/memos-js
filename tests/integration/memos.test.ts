@@ -82,6 +82,24 @@ describe("integration: memos", () => {
     expect((get.body as { content: string }).content).toBe("v2");
   });
 
+  it("PATCH memo accepts update_mask query param (grpc-gateway style)", async () => {
+    const app = createTestApp();
+    await postFirstUser(app, { username: "qmask", password: "secret123", role: "USER" });
+    const { accessToken } = await signIn(app, "qmask", "secret123");
+    const created = await postMemo(app, accessToken, { content: "v1", visibility: "PRIVATE" });
+    expect(created.status).toBe(200);
+    const id = memoIdFromName((created.body as { name: string }).name);
+
+    const patch = await apiJson(app, `/api/v1/memos/${encodeURIComponent(id)}?update_mask=content,visibility`, {
+      method: "PATCH",
+      bearer: accessToken,
+      json: { content: "v2", visibility: "PUBLIC" },
+    });
+    expect(patch.status).toBe(200);
+    expect((patch.body as { content: string; visibility: string }).content).toBe("v2");
+    expect((patch.body as { visibility: string }).visibility).toBe("PUBLIC");
+  });
+
   it("PATCH memo without updateMask returns 400", async () => {
     const app = createTestApp();
     await postFirstUser(app, { username: "nomask", password: "secret123", role: "USER" });

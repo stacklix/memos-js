@@ -142,16 +142,18 @@ npm run db:migrate:d1:remote
 
 4. 部署：
 
+**一步全量**（等同于 upload + 100% promote）：
+
 ```bash
-npx wrangler login
-npm run deploy:worker
+npm run deploy:worker:full
 ```
 
-当前 `package.json` 中部署相关脚本：
+**分步**（先上传，再在 `promote` 时切流；全量选 100%，灰度选小于 100% 或传 `--percentage`，见 `wrangler versions deploy --help`）：
 
-- `npm run deploy:worker` -> versions upload
-- `npm run deploy:worker:promote` -> versions deploy
-- `npm run deploy:worker:full` -> full deploy
+```bash
+npm run deploy:worker
+npm run deploy:worker:promote
+```
 
 ## 环境变量（Node 常用）
 

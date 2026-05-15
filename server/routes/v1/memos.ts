@@ -4,6 +4,7 @@ import type { AppDeps } from "../../types/deps.js";
 import type { AuthPrincipal } from "../../types/auth.js";
 import { createRepository, type DbMemoRow } from "../../db/repository.js";
 import { GrpcCode, jsonError } from "../../lib/grpc-status.js";
+import { resolveFieldMaskPaths } from "../../lib/update-mask.js";
 import { attachmentToJson, memoToJson } from "../../lib/serializers.js";
 import { b64urlToUtf8, utf8ToB64url } from "../../lib/b64url.js";
 import { normalizeMemoStateFromClient, normalizeMemoVisibilityFromClient } from "../../lib/memo-enums.js";
@@ -310,13 +311,13 @@ export function createMemoRoutes(deps: AppDeps) {
       displayTime?: string;
       display_time?: string;
       location?: unknown;
+      attachments?: { name?: string }[];
       updateMask?: { paths?: string[] };
       update_mask?: { paths?: string[] };
     };
     const body = (await c.req.json()) as MemoBody;
     if (!body) return jsonError(c, GrpcCode.INVALID_ARGUMENT, "memo required");
-    const rawPaths =
-      body.updateMask?.paths ?? body.update_mask?.paths ?? [];
+    const rawPaths = resolveFieldMaskPaths(c, body);
     if (rawPaths.length === 0) {
       return jsonError(c, GrpcCode.INVALID_ARGUMENT, "update_mask is required");
     }
@@ -352,6 +353,13 @@ export function createMemoRoutes(deps: AppDeps) {
         : undefined,
       ...locUpdate,
     });
+    if (hasPath("attachments") && body.attachments !== undefined) {
+      const attachmentIds =
+        body.attachments
+          .map((a) => (a.name ? a.name.replace(/^attachments\//, "") : null))
+          .filter((x): x is string => Boolean(x)) ?? [];
+      await repo.setMemoAttachments(id, attachmentIds);
+    }
     sseBus.emit({ type: "memo.updated", name: `memos/${id}` });
     const next = await repo.getMemoById(id);
     if (!next) return jsonError(c, GrpcCode.NOT_FOUND, "memo not found");

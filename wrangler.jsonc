@@ -7,9 +7,9 @@
 		"nodejs_compat"
 	],
 	// MEMOS_DEBUG_HTTP for local only: use `.dev.vars` (gitignored). `npm run dev:worker` runs scripts/ensure-wrangler-local-dev-vars.mjs — do not put MEMOS_DEBUG_HTTP in `vars` here or deploy would log bodies.
-	// Worker API version (`instance/profile`, etc.); bump when releasing. Node still uses `package.json` / `MEMOS_VERSION` env.
+	// Worker API version (`instance/profile`, etc.); keep in sync with `package.json` `version` when releasing.
 	"vars": {
-		"MEMOS_VERSION": "0.26.2"
+		"MEMOS_VERSION": "0.28.0"
 	},
 	"r2_buckets": [
 		{
