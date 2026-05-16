@@ -1,7 +1,10 @@
 /**
  * Derive memo `property` and filter flags from raw markdown content.
- * Heuristics aligned loosely with upstream memo payload extraction.
+ * Title extraction matches golang `internal/markdown` (first block-level H1 only).
  */
+
+import { fromMarkdown } from "mdast-util-from-markdown";
+import { toString } from "mdast-util-to-string";
 
 const CODE_FENCE = /```[\s\S]*?```/;
 
@@ -27,18 +30,22 @@ export function contentHasIncompleteTasks(content: string): boolean {
   return UNCHECKED_TASK.test(content);
 }
 
-/** First markdown ATX heading, else first non-empty line (trimmed, capped). */
+/**
+ * Title from the first block-level H1 in markdown (plain text, no inline formatting).
+ * Matches golang `ExtractProperties` / `ExtractAll` (not h2+, not later headings, no fallback).
+ */
 export function extractTitleHint(content: string): string {
-  const lines = content.split(/\r?\n/);
-  for (const line of lines) {
-    const h = /^\s{0,3}#{1,6}\s+(.+?)\s*$/.exec(line);
-    if (h) return h[1]!.trim().slice(0, 200);
+  let tree;
+  try {
+    tree = fromMarkdown(content);
+  } catch {
+    return "";
   }
-  for (const line of lines) {
-    const t = line.trim();
-    if (t) return t.slice(0, 200);
+  const first = tree.children[0];
+  if (!first || first.type !== "heading" || first.depth !== 1) {
+    return "";
   }
-  return "";
+  return toString(first).trim();
 }
 
 export function deriveMemoProperty(content: string) {

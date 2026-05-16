@@ -13,6 +13,7 @@ export function isPublicApiRoute(method: string, pathname: string): boolean {
   if (m === "GET" && pathname.startsWith("/api/v1/instance/settings/")) return true;
 
   if (pathname === "/api/v1/users" && m === "POST") return true;
+  if (pathname === "/api/v1/users:batchGet" && m === "POST") return true;
   if (pathname === "/api/v1/users:stats" && m === "GET") return true;
 
   if (m === "GET" && pathname.startsWith("/api/v1/users/")) {

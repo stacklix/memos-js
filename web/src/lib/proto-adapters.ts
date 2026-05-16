@@ -1,12 +1,11 @@
 import { create } from "@bufbuild/protobuf";
 import { timestampFromDate } from "@bufbuild/protobuf/wkt";
-import { State } from "@/types/proto/api/v1/common_pb";
 import { AttachmentSchema } from "@/types/proto/api/v1/attachment_service_pb";
+import { State } from "@/types/proto/api/v1/common_pb";
 import type { Memo } from "@/types/proto/api/v1/memo_service_pb";
 import { LocationSchema, MemoSchema, Visibility } from "@/types/proto/api/v1/memo_service_pb";
-import type { User } from "@/types/proto/api/v1/user_service_pb";
-import type { UserStats } from "@/types/proto/api/v1/user_service_pb";
-import { UserSchema, UserStatsSchema, User_Role } from "@/types/proto/api/v1/user_service_pb";
+import type { User, UserStats } from "@/types/proto/api/v1/user_service_pb";
+import { User_Role, UserSchema, UserStatsSchema } from "@/types/proto/api/v1/user_service_pb";
 
 /** REST JSON uses enum names as strings; protobuf-es expects numeric enums. */
 function stateFromApiJson(s: unknown): State {

@@ -11,7 +11,7 @@ import { verifyRefreshToken } from "./services/jwt-refresh.js";
 import { parseInstanceStorageSetting } from "./lib/instance-storage-setting.js";
 import { resolveAttachmentStorage } from "./services/attachment-storage-resolver.js";
 import { parseCookieHeader, REFRESH_COOKIE_NAME } from "./lib/cookies.js";
-import { createMcpHandler } from "./routes/mcp.js";
+import { parseUserAvatarDataUri } from "./lib/user-avatar-data-uri.js";
 
 /** Shared HTTP app. Mounts `GET /healthz` and `/api/v1` for Node and Worker. */
 export function createApp(deps: AppDeps) {
@@ -84,6 +84,16 @@ export function createApp(deps: AppDeps) {
     let attachmentUid = "";
     if (p.length >= 2 && p[0] === "attachments") {
       attachmentUid = p[1] ?? "";
+    } else if (p.length >= 3 && p[0] === "users" && p[2] === "avatar") {
+      const username = decodeURIComponent(p[1] ?? "");
+      const user = username ? await repo.getUser(username) : null;
+      if (!user?.avatar_url) return c.notFound();
+      const avatar = parseUserAvatarDataUri(user.avatar_url);
+      if (!avatar) return c.notFound();
+      const headers = new Headers();
+      headers.set("Content-Type", avatar.imageType);
+      headers.set("Cache-Control", "public, max-age=3600");
+      return new Response(avatar.bytes, { status: 200, headers });
     } else if (p.length >= 1) {
       attachmentUid = p[0] ?? "";
     }
@@ -150,12 +160,6 @@ export function createApp(deps: AppDeps) {
     return new Response(content, { status: 200, headers });
   });
   app.route("/api/v1", createV1App(deps));
-
-  // MCP (Model Context Protocol) endpoint — works on Node.js and Cloudflare Worker.
-  const mcpHandler = createMcpHandler(deps);
-  app.all("/mcp", async (c) => {
-    return mcpHandler(c.req.raw);
-  });
 
   return app;
 }

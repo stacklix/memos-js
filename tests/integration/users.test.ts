@@ -76,6 +76,63 @@ describe("integration: users", () => {
     expect((get.body as { displayName: string }).displayName).toBe("New Name");
   });
 
+  it("PATCH user accepts gRPC-Gateway-style flat JSON body (snake_case) and infers update mask", async () => {
+    const app = createTestApp();
+    await postFirstUser(app, { username: "gwflat", password: "secret123", role: "USER" });
+    const { accessToken } = await signIn(app, "gwflat", "secret123");
+
+    const patch = await apiJson(app, "/api/v1/users/gwflat", {
+      method: "PATCH",
+      bearer: accessToken,
+      json: {
+        display_name: "Magnux",
+        description: "Hello",
+        email: "scliqiao@gmail.com",
+      },
+    });
+    expect(patch.status).toBe(200);
+    const b = patch.body as { displayName: string; description: string; email: string };
+    expect(b.displayName).toBe("Magnux");
+    expect(b.description).toBe("Hello");
+    expect(b.email).toBe("scliqiao@gmail.com");
+  });
+
+  it("PATCH user merges updateMask from query with flat body (OpenAPI)", async () => {
+    const app = createTestApp();
+    await postFirstUser(app, { username: "gwquery", password: "secret123", role: "USER" });
+    const { accessToken } = await signIn(app, "gwquery", "secret123");
+
+    const patch = await apiJson(app, "/api/v1/users/gwquery?updateMask=email,description", {
+      method: "PATCH",
+      bearer: accessToken,
+      json: {
+        email: "open@api.test",
+        description: "via query mask",
+      },
+    });
+    expect(patch.status).toBe(200);
+    const b = patch.body as { email: string; description: string };
+    expect(b.email).toBe("open@api.test");
+    expect(b.description).toBe("via query mask");
+  });
+
+  it("PATCH user returns INVALID_ARGUMENT for unknown update mask path", async () => {
+    const app = createTestApp();
+    await postFirstUser(app, { username: "badmask", password: "secret123", role: "USER" });
+    const { accessToken } = await signIn(app, "badmask", "secret123");
+
+    const patch = await apiJson<{ code: number }>(app, "/api/v1/users/badmask", {
+      method: "PATCH",
+      bearer: accessToken,
+      json: {
+        user: { displayName: "X" },
+        updateMask: { paths: ["not_a_field"] },
+      },
+    });
+    expect(patch.status).toBe(400);
+    expect(patch.body.code).toBe(3);
+  });
+
   it("admin PATCH state archives and restores user with numeric enum values", async () => {
     const app = createTestApp();
     const { accessToken } = await seedAdmin(app, { username: "admstate", password: "secret123" });

@@ -9,12 +9,26 @@ import {
   type StoredUserWebhook,
 } from "../../lib/user-webhooks-setting.js";
 import { GrpcCode, jsonError } from "../../lib/grpc-status.js";
+import { resolveFieldMaskPaths } from "../../lib/update-mask.js";
 import { b64urlToUtf8, utf8ToB64url } from "../../lib/b64url.js";
 import { hashPassword } from "../../services/password.js";
+import {
+  exchangeOAuth2Token,
+  fetchOAuth2UserInfo,
+  parseOAuth2Config,
+} from "../../services/oauth2-idp.js";
 import { authPrincipalFromUserRow, userToJson } from "../../lib/serializers.js";
 import { userStatsFieldsFromMemoRows } from "../../lib/user-stats-from-memos.js";
 import { validateUserAvatarUrl } from "../../lib/user-avatar-data-uri.js";
 import { isValidMemosUsername } from "../../lib/user-username.js";
+
+function extractIdentityProviderUid(name: string): string | null {
+  const prefix = "identity-providers/";
+  if (!name.startsWith(prefix)) return null;
+  const uid = name.slice(prefix.length).trim();
+  if (!uid || !/^[a-z0-9][a-z0-9-]{0,31}$/i.test(uid)) return null;
+  return uid;
+}
 
 /** Proto `User.Role`: ROLE_UNSPECIFIED=0, ADMIN=2, USER=3 — JSON often uses these numbers. */
 const createUserRoleField = z
@@ -85,6 +99,86 @@ function parsePageArgs(
 function hasPath(paths: string[] | undefined, ...names: string[]): boolean {
   if (!paths || paths.length === 0) return false;
   return names.some((n) => paths.includes(n));
+}
+
+/** Known FieldMask path spellings -> canonical golang paths (`user_service.go` switch). */
+const USER_UPDATE_MASK_ALIASES: Record<string, string> = {
+  username: "username",
+  display_name: "display_name",
+  displayName: "display_name",
+  email: "email",
+  description: "description",
+  avatar_url: "avatar_url",
+  avatarUrl: "avatar_url",
+  password: "password",
+  role: "role",
+  state: "state",
+};
+
+function normalizeUserUpdateMaskPaths(
+  paths: string[],
+): { ok: true; paths: string[] } | { ok: false; path: string } {
+  const out: string[] = [];
+  for (const p of paths) {
+    const c = USER_UPDATE_MASK_ALIASES[p];
+    if (!c) return { ok: false, path: p };
+    if (!out.includes(c)) out.push(c);
+  }
+  return { ok: true, paths: out };
+}
+
+function inferUserUpdateMaskPaths(payload: Record<string, unknown>): string[] {
+  const out: string[] = [];
+  for (const [k, v] of Object.entries(payload)) {
+    if (v === undefined) continue;
+    const p = USER_UPDATE_MASK_ALIASES[k];
+    if (p && !out.includes(p)) out.push(p);
+  }
+  return out;
+}
+
+type UserPatchFields = {
+  username?: string;
+  displayName?: string;
+  email?: string;
+  password?: string;
+  role?: string | number;
+  state?: string | number;
+  avatarUrl?: string;
+  description?: string;
+};
+
+function normalizeUserPatchPayload(o: Record<string, unknown>): UserPatchFields {
+  const out: UserPatchFields = {};
+  if (typeof o.username === "string") out.username = o.username;
+  const disp = o.displayName ?? o.display_name;
+  if (disp !== undefined) out.displayName = typeof disp === "string" ? disp : String(disp);
+  if (o.email !== undefined) out.email = typeof o.email === "string" ? o.email : String(o.email);
+  if (o.description !== undefined) {
+    out.description = typeof o.description === "string" ? o.description : String(o.description);
+  }
+  const av = o.avatarUrl ?? o.avatar_url;
+  if (av !== undefined) out.avatarUrl = typeof av === "string" ? av : String(av);
+  if (typeof o.password === "string") out.password = o.password;
+  if (o.role !== undefined) out.role = o.role as string | number;
+  if (o.state !== undefined) out.state = o.state as string | number;
+  return out;
+}
+
+/**
+ * Connect/web sends `{ user, updateMask }`. gRPC-Gateway / OpenAPI sends the `User` JSON as the body
+ * and `updateMask` as a query param (`proto` `body: "user"`).
+ */
+function parseUpdateUserBody(raw: Record<string, unknown>): {
+  userPayload: Record<string, unknown>;
+  usedNestedUser: boolean;
+} {
+  const nested = raw.user;
+  if (nested && typeof nested === "object" && !Array.isArray(nested)) {
+    return { userPayload: nested as Record<string, unknown>, usedNestedUser: true };
+  }
+  const { updateMask: _a, update_mask: _b, user: _c, ...rest } = raw;
+  return { userPayload: rest, usedNestedUser: false };
 }
 
 function validateUserWebhookUrl(url: string): string | null {
@@ -245,32 +339,6 @@ export function createUserRoutes(deps: AppDeps) {
     return c.json(userToJson(created, authPrincipalFromUserRow(created)));
   });
 
-  r.post("/:action", async (c) => {
-    if (c.req.param("action") !== ":batchGet") {
-      return jsonError(c, GrpcCode.UNIMPLEMENTED, "unknown action");
-    }
-    const viewer = c.get("auth");
-    type Body = { usernames?: string[] };
-    let body: Body;
-    try {
-      body = (await c.req.json()) as Body;
-    } catch {
-      return jsonError(c, GrpcCode.INVALID_ARGUMENT, "invalid json");
-    }
-    const rawUsernames = Array.isArray(body.usernames) ? body.usernames : [];
-    if (rawUsernames.length > 100) {
-      return jsonError(c, GrpcCode.INVALID_ARGUMENT, "too many usernames; max 100");
-    }
-    const usernames = rawUsernames.map((u) =>
-      typeof u === "string" && u.startsWith("users/") ? u.slice("users/".length) : u,
-    );
-    const users = await Promise.all(usernames.map((u) => repo.getUser(u)));
-    const active = users.filter(
-      (u): u is NonNullable<typeof u> => u !== null && u !== undefined && u.state === "NORMAL",
-    );
-    return c.json({ users: active.map((u) => userToJson(u, viewer)) });
-  });
-
   const forUser = new Hono<{ Variables: ApiVariables }>();
 
   forUser.use(async (c, next) => {
@@ -325,37 +393,44 @@ export function createUserRoutes(deps: AppDeps) {
       return jsonError(c, GrpcCode.PERMISSION_DENIED, "permission denied");
     }
     const general = await repo.getGeneralSetting();
-    type Body = {
-      user?: {
-        username?: string;
-        displayName?: string;
-        email?: string;
-        password?: string;
-        role?: string | number;
-        state?: string | number;
-        avatarUrl?: string;
-        description?: string;
-      };
-      updateMask?: { paths?: string[] };
-    };
-    let body: Body;
+    let raw: Record<string, unknown>;
     try {
-      body = (await c.req.json()) as Body;
+      raw = (await c.req.json()) as Record<string, unknown>;
     } catch {
       return jsonError(c, GrpcCode.INVALID_ARGUMENT, "invalid json");
     }
-    const u = body.user;
-    if (!u) return jsonError(c, GrpcCode.INVALID_ARGUMENT, "user required");
-    const paths = body.updateMask?.paths ?? [];
+    const { userPayload, usedNestedUser } = parseUpdateUserBody(raw);
+    if (!usedNestedUser && Object.keys(userPayload).length === 0) {
+      return jsonError(c, GrpcCode.INVALID_ARGUMENT, "user required");
+    }
+
+    const patch = normalizeUserPatchPayload(userPayload);
+    let paths = resolveFieldMaskPaths(c, raw);
+    if (paths.length === 0) {
+      if (usedNestedUser) {
+        return jsonError(c, GrpcCode.INVALID_ARGUMENT, "update mask is empty");
+      }
+      paths = inferUserUpdateMaskPaths(userPayload);
+    }
     if (paths.length === 0) {
       return jsonError(c, GrpcCode.INVALID_ARGUMENT, "update mask is empty");
     }
+    const norm = normalizeUserUpdateMaskPaths(paths);
+    if (!norm.ok) {
+      return jsonError(
+        c,
+        GrpcCode.INVALID_ARGUMENT,
+        `invalid update path: ${norm.path}`,
+      );
+    }
+    paths = norm.paths;
+
     let newUsername: string | null = null;
     if (hasPath(paths, "username")) {
       if (general.disallowChangeUsername) {
         return jsonError(c, GrpcCode.PERMISSION_DENIED, "permission denied");
       }
-      const next = typeof u.username === "string" ? u.username.trim() : "";
+      const next = patch.username?.trim() ?? "";
       if (!next) {
         return jsonError(c, GrpcCode.INVALID_ARGUMENT, "username required");
       }
@@ -372,14 +447,14 @@ export function createUserRoutes(deps: AppDeps) {
       if (general.disallowChangeNickname) {
         return jsonError(c, GrpcCode.PERMISSION_DENIED, "permission denied");
       }
-      if (u.displayName !== undefined) fields.display_name = u.displayName;
+      if (patch.displayName !== undefined) fields.display_name = patch.displayName;
     }
     if (hasPath(paths, "email")) {
-      if (u.email !== undefined) fields.email = u.email;
+      if (patch.email !== undefined) fields.email = patch.email;
     }
     if (hasPath(paths, "avatar_url", "avatarUrl")) {
-      if (u.avatarUrl !== undefined) {
-        const avatarErr = validateUserAvatarUrl(u.avatarUrl);
+      if (patch.avatarUrl !== undefined) {
+        const avatarErr = validateUserAvatarUrl(patch.avatarUrl);
         if (avatarErr) {
           const msg =
             avatarErr === "invalid data URI format"
@@ -387,27 +462,27 @@ export function createUserRoutes(deps: AppDeps) {
               : avatarErr;
           return jsonError(c, GrpcCode.INVALID_ARGUMENT, msg);
         }
-        fields.avatar_url = u.avatarUrl;
+        fields.avatar_url = patch.avatarUrl;
       }
     }
     if (hasPath(paths, "description")) {
-      if (u.description !== undefined) fields.description = u.description;
+      if (patch.description !== undefined) fields.description = patch.description;
     }
-    if (u.password && hasPath(paths, "password")) {
-      fields.password_hash = await hashPassword(u.password);
+    if (patch.password && hasPath(paths, "password")) {
+      fields.password_hash = await hashPassword(patch.password);
     }
     if (hasPath(paths, "role")) {
       if (auth.role !== "ADMIN") {
         return jsonError(c, GrpcCode.PERMISSION_DENIED, "permission denied");
       }
-      const parsedRole = parseUserRolePatchValue(u.role);
+      const parsedRole = parseUserRolePatchValue(patch.role);
       if (!parsedRole) {
         return jsonError(c, GrpcCode.INVALID_ARGUMENT, "invalid role");
       }
       fields.role = parsedRole;
     }
     if (hasPath(paths, "state")) {
-      const parsedState = parseUserStatePatchValue(u.state);
+      const parsedState = parseUserStatePatchValue(patch.state);
       if (!parsedState) {
         return jsonError(c, GrpcCode.INVALID_ARGUMENT, "invalid state");
       }
@@ -1026,6 +1101,94 @@ export function createUserRoutes(deps: AppDeps) {
     });
   });
 
+  forUser.post("/linkedIdentities", async (c) => {
+    const auth = c.get("auth");
+    if (!auth) return jsonError(c, GrpcCode.UNAUTHENTICATED, "permission denied");
+    const username = c.req.param("username")!;
+    if (username.includes(":")) return jsonError(c, GrpcCode.INVALID_ARGUMENT, "invalid user resource");
+    if (auth.username !== username) {
+      return jsonError(c, GrpcCode.PERMISSION_DENIED, "permission denied");
+    }
+    type Body = {
+      idpName?: string;
+      code?: string;
+      redirectUri?: string;
+      codeVerifier?: string;
+    };
+    const body = (await c.req.json()) as Body;
+    const providerUid = extractIdentityProviderUid(body.idpName ?? "");
+    if (!providerUid) return jsonError(c, GrpcCode.INVALID_ARGUMENT, "invalid identity provider name");
+    if (!body.code) return jsonError(c, GrpcCode.INVALID_ARGUMENT, "code required");
+    if (!body.redirectUri) return jsonError(c, GrpcCode.INVALID_ARGUMENT, "redirect uri required");
+
+    const userId = await repo.getUserInternalId(username);
+    if (userId === null) return jsonError(c, GrpcCode.NOT_FOUND, "user not found");
+    const provider = await repo.getIdentityProviderByUid(providerUid);
+    if (!provider) return jsonError(c, GrpcCode.INVALID_ARGUMENT, "identity provider not found");
+    if (provider.type !== "OAUTH2") return jsonError(c, GrpcCode.INVALID_ARGUMENT, "unsupported identity provider type");
+
+    let providerConfig: unknown = {};
+    try {
+      providerConfig = JSON.parse(provider.config);
+    } catch {
+      return jsonError(c, GrpcCode.INTERNAL, "invalid identity provider config");
+    }
+    const oauth2Config = parseOAuth2Config(providerConfig);
+    if (!oauth2Config) return jsonError(c, GrpcCode.INTERNAL, "invalid identity provider config");
+
+    let oauthAccessToken = "";
+    try {
+      oauthAccessToken = await exchangeOAuth2Token({
+        config: oauth2Config,
+        redirectUri: body.redirectUri,
+        code: body.code,
+        codeVerifier: body.codeVerifier,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "failed to exchange token";
+      return jsonError(c, GrpcCode.INTERNAL, message);
+    }
+
+    let userInfo: { identifier: string };
+    try {
+      userInfo = await fetchOAuth2UserInfo({
+        config: oauth2Config,
+        accessToken: oauthAccessToken,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "failed to get user info";
+      return jsonError(c, GrpcCode.INTERNAL, message);
+    }
+
+    if (provider.identifier_filter) {
+      let regex: RegExp;
+      try {
+        regex = new RegExp(provider.identifier_filter);
+      } catch {
+        return jsonError(c, GrpcCode.INTERNAL, "invalid identity provider identifier filter");
+      }
+      if (!regex.test(userInfo.identifier)) {
+        return jsonError(c, GrpcCode.PERMISSION_DENIED, "identifier is not allowed");
+      }
+    }
+
+    const existingForUser = await repo.getUserIdentity(userId, providerUid);
+    if (existingForUser) {
+      return jsonError(c, GrpcCode.ALREADY_EXISTS, "identity provider already linked");
+    }
+    const existingForIdentity = await repo.getUserIdentityByProviderExternUid(providerUid, userInfo.identifier);
+    if (existingForIdentity && existingForIdentity.user_id !== userId) {
+      return jsonError(c, GrpcCode.ALREADY_EXISTS, "identity already linked to another user");
+    }
+
+    const row = await repo.upsertUserIdentity(userId, providerUid, userInfo.identifier);
+    return c.json({
+      name: `users/${username}/linkedIdentities/${encodeURIComponent(row.provider)}`,
+      idpName: `identity-providers/${encodeURIComponent(row.provider)}`,
+      externUid: row.extern_uid,
+    });
+  });
+
   forUser.get("/linkedIdentities/:provider", async (c) => {
     const auth = c.get("auth");
     if (!auth) return jsonError(c, GrpcCode.UNAUTHENTICATED, "permission denied");
@@ -1063,6 +1226,36 @@ export function createUserRoutes(deps: AppDeps) {
   });
 
   r.route("/:username", forUser);
+
+  return r;
+}
+
+export function createUserActionRoutes(deps: AppDeps) {
+  const r = new Hono<{ Variables: ApiVariables }>();
+  const repo = createRepository(deps.sql);
+
+  r.post("/users:batchGet", async (c) => {
+    const viewer = c.get("auth");
+    type Body = { usernames?: string[] };
+    let body: Body;
+    try {
+      body = (await c.req.json()) as Body;
+    } catch {
+      return jsonError(c, GrpcCode.INVALID_ARGUMENT, "invalid json");
+    }
+    const rawUsernames = Array.isArray(body.usernames) ? body.usernames : [];
+    if (rawUsernames.length > 100) {
+      return jsonError(c, GrpcCode.INVALID_ARGUMENT, "too many usernames; max 100");
+    }
+    const usernames = rawUsernames.map((u) =>
+      typeof u === "string" && u.startsWith("users/") ? u.slice("users/".length) : u,
+    );
+    const users = await Promise.all(usernames.map((u) => repo.getUser(u)));
+    const active = users.filter(
+      (u): u is NonNullable<typeof u> => u !== null && u !== undefined && u.state === "NORMAL",
+    );
+    return c.json({ users: active.map((u) => userToJson(u, viewer)) });
+  });
 
   return r;
 }

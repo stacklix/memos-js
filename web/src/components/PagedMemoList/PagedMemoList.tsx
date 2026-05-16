@@ -1,13 +1,12 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { ArrowUpIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { matchPath } from "react-router-dom";
+import { MentionResolutionProvider } from "@/components/MemoContent/MentionResolutionContext";
 import { Button } from "@/components/ui/button";
 import { userServiceClient } from "@/connect";
 import { DEFAULT_LIST_MEMOS_PAGE_SIZE } from "@/helpers/consts";
 import { useInfiniteMemos } from "@/hooks/useMemoQueries";
 import { userKeys } from "@/hooks/useUserQueries";
-import { Routes } from "@/router";
 import { State } from "@/types/proto/api/v1/common_pb";
 import type { Memo } from "@/types/proto/api/v1/memo_service_pb";
 import { useTranslate } from "@/utils/i18n";
@@ -25,6 +24,8 @@ interface Props {
   pageSize?: number;
   showCreator?: boolean;
   enabled?: boolean;
+  /** When true, render the inline MemoEditor above the list (e.g. on the Home page). */
+  showMemoEditor?: boolean;
 }
 
 function useAutoFetchWhenNotScrollable({
@@ -82,13 +83,12 @@ const PagedMemoList = (props: Props) => {
   const t = useTranslate();
   const queryClient = useQueryClient();
 
-  // Show memo editor only on the root route
-  const showMemoEditor = Boolean(matchPath(Routes.ROOT, window.location.pathname));
+  const showMemoEditor = props.showMemoEditor ?? false;
 
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading } = useInfiniteMemos(
     {
       state: props.state || State.NORMAL,
-      orderBy: props.orderBy || "display_time desc",
+      orderBy: props.orderBy || "create_time desc",
       filter: props.filter,
       pageSize: props.pageSize || DEFAULT_LIST_MEMOS_PAGE_SIZE,
     },
@@ -145,37 +145,39 @@ const PagedMemoList = (props: Props) => {
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   const children = (
-    <div className="flex flex-col justify-start w-full max-w-2xl mx-auto">
-      {/* Show skeleton loader during initial load */}
-      {isLoading ? (
-        <Skeleton showCreator={props.showCreator} count={4} />
-      ) : (
-        <>
-          {showMemoEditor ? <MemoEditor className="mb-2" cacheKey="home-memo-editor" placeholder={t("editor.any-thoughts")} /> : null}
-          <MemoFilters />
-          {sortedMemoList.map((memo) => props.renderer(memo))}
+    <MentionResolutionProvider contents={sortedMemoList.map((memo) => memo.content)}>
+      <div className="flex flex-col justify-start w-full max-w-2xl mx-auto">
+        {/* Show skeleton loader during initial load */}
+        {isLoading ? (
+          <Skeleton showCreator={props.showCreator} count={4} />
+        ) : (
+          <>
+            {showMemoEditor ? <MemoEditor className="mb-2" cacheKey="home-memo-editor" placeholder={t("editor.any-thoughts")} /> : null}
+            <MemoFilters />
+            {sortedMemoList.map((memo) => props.renderer(memo))}
 
-          {/* Loading indicator for pagination */}
-          {isFetchingNextPage && <Skeleton showCreator={props.showCreator} count={2} />}
+            {/* Loading indicator for pagination */}
+            {isFetchingNextPage && <Skeleton showCreator={props.showCreator} count={2} />}
 
-          {/* Empty state or back-to-top button */}
-          {!isFetchingNextPage && (
-            <>
-              {!hasNextPage && sortedMemoList.length === 0 ? (
-                <div className="w-full mt-12 mb-8 flex flex-col justify-center items-center italic">
-                  <Empty />
-                  <p className="mt-2 text-muted-foreground">{t("message.no-data")}</p>
-                </div>
-              ) : (
-                <div className="w-full opacity-70 flex flex-row justify-center items-center my-4">
-                  <BackToTop />
-                </div>
-              )}
-            </>
-          )}
-        </>
-      )}
-    </div>
+            {/* Empty state or back-to-top button */}
+            {!isFetchingNextPage && (
+              <>
+                {!hasNextPage && sortedMemoList.length === 0 ? (
+                  <div className="w-full mt-12 mb-8 flex flex-col justify-center items-center italic">
+                    <Empty />
+                    <p className="mt-2 text-muted-foreground">{t("message.no-data")}</p>
+                  </div>
+                ) : (
+                  <div className="w-full opacity-70 flex flex-row justify-center items-center my-4">
+                    <BackToTop />
+                  </div>
+                )}
+              </>
+            )}
+          </>
+        )}
+      </div>
+    </MentionResolutionProvider>
   );
 
   return children;

@@ -6,9 +6,11 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { identityProviderServiceClient } from "@/connect";
 import { useInstance } from "@/contexts/InstanceContext";
 import useDialog from "@/hooks/useDialog";
 import { handleError } from "@/lib/error";
+import { IdentityProvider } from "@/types/proto/api/v1/idp_service_pb";
 import {
   InstanceSetting_GeneralSetting,
   InstanceSetting_GeneralSettingSchema,
@@ -26,6 +28,8 @@ const InstanceSection = () => {
   const customizeDialog = useDialog();
   const { generalSetting: originalSetting, profile, updateSetting, fetchSetting } = useInstance();
   const [instanceGeneralSetting, setInstanceGeneralSetting] = useState<InstanceSetting_GeneralSetting>(originalSetting);
+  const [identityProviderList, setIdentityProviderList] = useState<IdentityProvider[]>([]);
+
   useEffect(() => {
     setInstanceGeneralSetting((prev) =>
       create(InstanceSetting_GeneralSettingSchema, {
@@ -34,6 +38,15 @@ const InstanceSection = () => {
       }),
     );
   }, [originalSetting.customProfile]);
+
+  const fetchIdentityProviderList = async () => {
+    const { identityProviders } = await identityProviderServiceClient.listIdentityProviders({});
+    setIdentityProviderList(identityProviders);
+  };
+
+  useEffect(() => {
+    fetchIdentityProviderList();
+  }, []);
 
   const updatePartialSetting = (partial: Partial<InstanceSetting_GeneralSetting>) => {
     setInstanceGeneralSetting(
@@ -108,7 +121,7 @@ const InstanceSection = () => {
 
         <SettingRow label={t("setting.instance.disallow-password-auth")}>
           <Switch
-            disabled={profile.demo}
+            disabled={profile.demo || (identityProviderList.length === 0 && !instanceGeneralSetting.disallowPasswordAuth)}
             checked={instanceGeneralSetting.disallowPasswordAuth}
             onCheckedChange={(checked) => updatePartialSetting({ disallowPasswordAuth: checked })}
           />

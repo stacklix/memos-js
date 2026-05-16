@@ -5,7 +5,7 @@
   "compatibility_date": "2025-04-01",
   "compatibility_flags": ["nodejs_compat"],
   "vars": {
-    "MEMOS_VERSION": "0.26.2"
+    "MEMOS_VERSION": "0.28.0"
   },
   "r2_buckets": [
     {

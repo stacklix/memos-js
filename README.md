@@ -86,20 +86,17 @@ Naming convention: `db:<action>:<target>`
 - actions: `migrate`, `empty`, `clear`
 - targets: `sqlite`, `d1:local`, `d1:remote` (remote for migrate only)
 
-Examples:
+| Goal | Command |
+| --- | --- |
+| Apply local SQLite migrations | `npm run db:migrate:sqlite` |
+| Empty local SQLite data, keep schema | `npm run db:empty:sqlite` |
+| Delete local SQLite database file | `npm run db:clear:sqlite` |
+| Apply local D1 migrations | `npm run db:migrate:d1:local` |
+| Apply remote D1 migrations | `npm run db:migrate:d1:remote` |
+| Empty local D1 data, keep schema | `npm run db:empty:d1:local` |
+| Delete local Wrangler state | `npm run db:clear:d1:local` |
 
-```bash
-# SQLite
-npm run db:migrate:sqlite
-npm run db:empty:sqlite
-npm run db:clear:sqlite
-
-# D1
-npm run db:migrate:d1:local
-npm run db:migrate:d1:remote
-npm run db:empty:d1:local
-npm run db:clear:d1:local
-```
+For `empty` / `clear`, stop the corresponding dev server first. SQLite `empty` / `clear` and D1 local `clear` accept `-- --yes` for non-interactive runs.
 
 ## Migrations (Node + D1)
 
@@ -147,16 +144,18 @@ npm run db:migrate:d1:remote
 
 4. Deploy:
 
+**One-step full release** (same as upload + 100% promote):
+
 ```bash
-npx wrangler login
-npm run deploy:worker
+npm run deploy:worker:full
 ```
 
-Current deploy scripts in `package.json`:
+**Two-step** (upload, then route traffic in `promote`; 100% = full, under 100% = canary — interactive or `--percentage`, see `wrangler versions deploy --help`):
 
-- `npm run deploy:worker` -> versions upload
-- `npm run deploy:worker:promote` -> versions deploy
-- `npm run deploy:worker:full` -> full deploy
+```bash
+npm run deploy:worker
+npm run deploy:worker:promote
+```
 
 ## Environment variables (Node, selected)
 
@@ -172,7 +171,7 @@ Current deploy scripts in `package.json`:
 
 ## API contract
 
-For API/proto parity, use this repository's `origin/master` as source of truth:
+For API/proto parity, use this repository's `golang` branch as source of truth:
 
 - `proto/`
 - Go tree under `server/` and `plugin/`

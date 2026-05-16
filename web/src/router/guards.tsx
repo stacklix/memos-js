@@ -11,7 +11,7 @@ import { ROUTES } from "./routes";
 export const LandingRoute = () => {
   const currentUser = useCurrentUser();
   const location = useLocation();
-  const target = currentUser ? ROUTES.ROOT : ROUTES.EXPLORE;
+  const target = currentUser ? ROUTES.HOME : ROUTES.EXPLORE;
 
   return (
     <Navigate
@@ -44,7 +44,7 @@ export const RequireAuthRoute = () => {
 
 /**
  * Guard for guest-only routes (sign-in and sign-up). Already-authenticated users
- * are redirected to the requested `redirect` target (when safe) or to `/`.
+ * are redirected to the requested `redirect` target (when safe) or to `/home`.
  *
  * The OAuth callback route (`/auth/callback`) intentionally opts out of this guard:
  * an authenticated session in another tab must not prevent the callback from
@@ -56,7 +56,7 @@ export const RequireGuestRoute = () => {
 
   if (currentUser) {
     const redirectTarget = getSafeRedirectPath(searchParams.get(AUTH_REDIRECT_PARAM));
-    return <Navigate to={redirectTarget || ROUTES.ROOT} replace />;
+    return <Navigate to={redirectTarget || ROUTES.HOME} replace />;
   }
 
   return <Outlet />;

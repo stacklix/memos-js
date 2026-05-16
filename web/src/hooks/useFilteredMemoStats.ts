@@ -49,7 +49,7 @@ export const useFilteredMemoStats = (options: UseFilteredMemoStatsOptions = {}):
         }
       }
       const displayDates = (memosResponse?.memos ?? [])
-        .map((memo) => (memo.displayTime ? timestampDate(memo.displayTime) : undefined))
+        .map((memo) => (memo.createTime ? timestampDate(memo.createTime) : undefined))
         .filter((date): date is Date => date !== undefined)
         .map(toDateString);
       activityStats = countBy(displayDates);
@@ -69,7 +69,7 @@ export const useFilteredMemoStats = (options: UseFilteredMemoStatsOptions = {}):
     } else if (memosResponse?.memos) {
       // archived/fallback: compute from cached memos
       const displayDates = memosResponse.memos
-        .map((memo) => (memo.displayTime ? timestampDate(memo.displayTime) : undefined))
+        .map((memo) => (memo.createTime ? timestampDate(memo.createTime) : undefined))
         .filter((date): date is Date => date !== undefined)
         .map(toDateString);
       activityStats = countBy(displayDates);

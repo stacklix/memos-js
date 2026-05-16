@@ -12,6 +12,23 @@ const ALLOWED_AVATAR_TYPES: Record<string, boolean> = {
   "image/webp": true,
 };
 
+export function parseUserAvatarDataUri(
+  avatarUrl: string,
+): { imageType: string; bytes: Uint8Array<ArrayBufferLike> } | null {
+  const m = DATA_URI_RE.exec(avatarUrl);
+  if (!m) return null;
+  const imageType = m[1] ?? "";
+  if (!ALLOWED_AVATAR_TYPES[imageType]) return null;
+  try {
+    const bin = atob(m[2] ?? "");
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return { imageType, bytes };
+  } catch {
+    return null;
+  }
+}
+
 /**
  * @returns error message for INVALID_ARGUMENT, or null if valid (including empty string).
  */

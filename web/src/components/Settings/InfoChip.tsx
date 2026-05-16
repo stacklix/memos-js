@@ -1,5 +1,5 @@
 import { Badge } from "@/components/ui/badge";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -28,16 +28,14 @@ const InfoChip = ({ label, value, tooltip, className }: Props) => {
   }
 
   return (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span className="inline-flex" tabIndex={0} aria-label={tooltip}>
-            {chip}
-          </span>
-        </TooltipTrigger>
-        <TooltipContent className="max-w-xs whitespace-pre-wrap break-words">{tooltip}</TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="inline-flex" tabIndex={0} aria-label={tooltip}>
+          {chip}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-xs whitespace-pre-wrap break-words">{tooltip}</TooltipContent>
+    </Tooltip>
   );
 };
 

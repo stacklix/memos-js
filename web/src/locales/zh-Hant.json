@@ -15,6 +15,10 @@
     "sign-in-tip": "已經有帳戶了嗎？",
     "sign-up-tip": "還沒有帳戶嗎？"
   },
+  "demo": {
+    "banner-description": "這裡的改動是暫時的，可能會被重置。",
+    "banner-title": "Memos 演示站"
+  },
   "common": {
     "about": "關於",
     "add": "新增",
@@ -125,8 +129,42 @@
     "save": "儲存",
     "saving": "儲存中...",
     "slash-commands": "輸入 `/` 以使用指令",
-    "attachments-not-implemented": "暫未實作",
-    "attachments-not-implemented-detail": "附件上傳（檔案與語音）需伺服端支援，此版本尚未提供。"
+    "insert-menu": {
+      "add-location": "新增位置",
+      "link-memo": "連結備忘錄",
+      "upload-file": "上傳文件"
+    },
+    "audio-recorder": {
+      "attachment-label": "錄音",
+      "attachment-label-with-time": "錄音 {{time}}",
+      "configure-ai-provider": "請先配置 AI provider",
+      "discard": "丟棄",
+      "error": "麥克風不可用",
+      "error-description": "檢查此網站的麥克風存取權限後重試。",
+      "idle-description": "開始錄音以將錄音新增為附件。",
+      "keep": "繼續錄音",
+      "pause-recording": "暫停錄音",
+      "play-recording": "播放錄音",
+      "ready": "錄音準備就緒",
+      "ready-description": "預覽剪輯，然後將其保留為音訊附件或將其丟棄。",
+      "record-again": "再次錄製",
+      "recording": "錄音",
+      "recording-description": "擷取快速音訊附件。目前長度：{{duration}}",
+      "requesting": "請求訪問...",
+      "requesting-permission": "請求麥克風存取權限",
+      "requesting-permission-description": "允許瀏覽器中的麥克風存取以開始錄音。",
+      "start": "開始錄音",
+      "stop": "停止錄音",
+      "title": "錄音機",
+      "transcribe": "轉為文字",
+      "transcribe-empty": "未偵測到語音",
+      "transcribe-error": "音訊轉寫失敗",
+      "transcribe-success": "轉寫內容已加入",
+      "transcribing": "轉寫中...",
+      "trigger": "錄製音訊",
+      "unsupported": "不支援錄音",
+      "unsupported-description": "此瀏覽器無法錄製備忘錄編輯器中的音訊。"
+    }
   },
   "inbox": {
     "failed-to-load": "載入失敗",
@@ -161,14 +199,19 @@
     "filters": {
       "has-code": "有程式碼",
       "has-link": "有連結",
-      "has-task-list": "有待辦事項"
+      "has-task-list": "有待辦事項",
+      "label": "過濾器"
     },
     "links": "連結",
     "load-more": "載入更多",
     "no-archived-memos": "無已封存的備忘錄",
     "no-memos": "無備忘錄",
+    "newest-first": "最新優先",
+    "oldest-first": "最早優先",
+    "order": "順序",
     "order-by": "排序",
     "search-placeholder": "搜尋備忘錄",
+    "shown-time": "顯示時間",
     "show-less": "顯示較少",
     "show-more": "查看更多",
     "to-do": "待辦事項",
@@ -178,6 +221,41 @@
       "private": "私人",
       "protected": "成員",
       "public": "公開"
+    },
+    "outline": "概要",
+    "share": {
+      "active-links": "有效的分享連結",
+      "copied": "已複製！",
+      "copy": "複製連結",
+      "create-failed": "無法建立分享連結",
+      "create-link": "建立新連結",
+      "creating": "建立中…",
+      "expiry-1-day": "1天",
+      "expiry-30-days": "30天",
+      "expiry-7-days": "7天",
+      "expiry-label": "到期時間",
+      "expiry-never": "永不",
+      "image-description": "預覽會依照你目前裝置上的顯示寬度（{{width}}px）渲染。",
+      "image-download": "下載 PNG",
+      "image-download-failed": "匯出圖片失敗",
+      "image-downloaded": "圖片已儲存",
+      "image-footer": "由 Memos 產生分享圖",
+      "image-share": "分享圖片",
+      "image-share-failed": "分享圖片失敗",
+      "image-title": "分享成圖片",
+      "expires-on": "{{date}} 到期",
+      "invalid-link": "該連結無效或已過期。",
+      "never-expires": "永不過期",
+      "no-links": "還沒有分享連結，請在下方建立。",
+      "open-image": "分享成圖片",
+      "open-panel": "管理分享連結",
+      "revoke": "撤銷",
+      "revoke-failed": "撤銷連結失敗",
+      "revoked": "分享連結已撤銷",
+      "section-label": "分享",
+      "share": "分享",
+      "shared-by": "由 {{creator}} 分享",
+      "title": "分享這份備忘錄"
     }
   },
   "message": {
@@ -263,10 +341,38 @@
       "restore-success": "{{username}} 恢復成功",
       "user": "使用者",
       "label": "使用者",
-      "list-title": "使用者列表"
+      "list-title": "使用者列表",
+      "no-members-found": "沒有找到會員"
     },
     "my-account": {
       "label": "我的帳號"
+    },
+    "ai": {
+      "add-provider": "新增 provider",
+      "api-key": "API key",
+      "api-key-required": "API key 不可為空。",
+      "byok-description": "使用你自己的 OpenAI 或 Gemini 帳號 API key。Memos 會從本實例伺服器直接呼叫 provider。",
+      "byok-key-note": "使用你在 provider 帳號中建立的 key；Memos 不提供共享 AI 憑證。",
+      "byok-label": "BYOK",
+      "byok-model-note": "Memos 會為音訊轉寫等功能選擇內建支援的模型。",
+      "byok-storage-note": "Key 保存在本實例中，載入設定時只返回脫敏提示。",
+      "byok-title": "使用你自己的 AI 帳號",
+      "configured": "已設定",
+      "current-key": "目前 key：{{key}}",
+      "default-endpoint": "預設端點",
+      "delete-provider": "刪除 AI provider `{{title}}`？",
+      "description": "Provider key 由實例擁有者提供，並用於伺服器端 AI 功能。",
+      "dialog-description": "新增你自己的 provider 帳號 key。Memos 會為每個 provider 使用內建模型；編輯時留空 API key 可保留已保存的 key。",
+      "edit-provider": "編輯 provider",
+      "endpoint": "端點",
+      "endpoint-hint": "留空則使用官方 provider 端點。",
+      "keep-api-key": "留空以保留已保存的 key",
+      "label": "AI",
+      "no-providers": "尚未設定 AI provider。",
+      "provider-title": "Provider 名稱",
+      "provider-title-required": "Provider 名稱不可為空。",
+      "provider-type": "Provider 類型",
+      "providers": "Providers"
     },
     "preference": {
       "default-memo-sort-option": "備忘錄顯示時間",
@@ -336,8 +442,7 @@
       "url-suffix": "網址後綴",
       "url-suffix-placeholder": "自訂網址後綴（選填）",
       "warning-text": "您確定要刪除存儲服務 `{{name}}` 嗎？此操作無法恢復。",
-      "label": "儲存空間",
-      "not-implemented-hint": "目前伺服端未實作附件儲存，以下選項僅供對照，儲存不會生效。"
+      "label": "儲存空間"
     },
     "system": {
       "additional-script": "自訂腳本",
@@ -386,7 +491,8 @@
       },
       "description": "此處列出您帳號的所有存取令牌。",
       "title": "存取令牌",
-      "token": "令牌"
+      "token": "令牌",
+      "no-tokens-found": "未找到訪問令牌"
     },
     "account": {
       "change-password": "變更密碼",
@@ -418,7 +524,8 @@
       "enable-memo-location": "啟用備忘錄定位",
       "reactions": "表情回應",
       "title": "備忘錄相關設定",
-      "label": "備忘錄"
+      "label": "備忘錄",
+      "reactions-required": "反應列表不能為空"
     },
     "webhook": {
       "create-dialog": {
@@ -439,6 +546,20 @@
       "title": "Webhook",
       "url": "網址",
       "label": "Webhook"
+    },
+    "tags": {
+      "label": "標籤",
+      "title": "標籤元數據",
+      "description": "將可選的顯示顏色指派給實例範圍內的標籤，或模糊符合的備忘錄內容。��籤名稱被視為錨定的正規表示式模式。",
+      "background-color": "背景顏色",
+      "blur-content": "模糊內容",
+      "no-tags-configured": "未配置標籤元資料。",
+      "tag-name": "標籤名稱",
+      "tag-name-placeholder": "例如工作或project/.*",
+      "tag-already-exists": "標籤已經存在。",
+      "tag-pattern-hint": "標籤名稱或正規表示式模式（例如 project/.* 符合所有 project/ 標籤）",
+      "invalid-regex": "無效或不安全的正規表示式模式。",
+      "using-default-color": "使用預設顏色。"
     }
   },
   "tag": {

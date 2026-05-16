@@ -80,4 +80,86 @@ describe("integration: errors and unimplemented", () => {
     });
     expect(patch.status).toBe(200);
   });
+
+  it("does not expose master-only non-contract endpoints", async () => {
+    const app = createTestApp();
+    const { accessToken } = await seedAdmin(app, { username: "contract-admin", password: "secret123" });
+
+    const ai = await apiRequest(app, "/api/v1/ai/transcribe", {
+      method: "POST",
+      bearer: accessToken,
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    expect(ai.status).toBe(404);
+
+    const users = await apiRequest(app, "/api/v1/users/:batchGet", {
+      method: "POST",
+      bearer: accessToken,
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    expect(users.status).toBe(404);
+
+    const attachments = await apiRequest(app, "/api/v1/attachments/:batchDelete", {
+      method: "POST",
+      bearer: accessToken,
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    expect(attachments.status).toBe(404);
+
+    const mcp = await apiRequest(app, "/mcp", { method: "POST" });
+    expect(mcp.status).toBe(404);
+  });
+
+  it("exposes golang REST action paths with literal colons", async () => {
+    const app = createTestApp();
+    const { accessToken } = await seedAdmin(app, { username: "contract-admin-2", password: "secret123" });
+    await postUserAsAdmin(app, accessToken, { username: "batch-user", password: "secret123", role: "USER" });
+
+    const batchUsers = await apiJson<{ users?: Array<{ username?: string }> }>(
+      app,
+      "/api/v1/users:batchGet",
+      {
+        method: "POST",
+        json: { usernames: ["batch-user"] },
+      },
+    );
+    expect(batchUsers.status).toBe(200);
+    expect(batchUsers.body.users?.map((u) => u.username)).toEqual(["batch-user"]);
+
+    const createdAttachment = await apiJson<{ name: string }>(app, "/api/v1/attachments", {
+      method: "POST",
+      bearer: accessToken,
+      json: {
+        attachment: {
+          filename: "contract.txt",
+          content: "Y29udHJhY3Q=",
+          type: "text/plain",
+        },
+      },
+    });
+    expect(createdAttachment.status).toBe(200);
+
+    const batchDelete = await apiJson(app, "/api/v1/attachments:batchDelete", {
+      method: "POST",
+      bearer: accessToken,
+      json: { names: [createdAttachment.body.name] },
+    });
+    expect(batchDelete.status).toBe(200);
+
+    const afterDelete = await apiJson(app, `/api/v1/${createdAttachment.body.name}`, {
+      bearer: accessToken,
+    });
+    expect(afterDelete.status).toBe(404);
+
+    const transcribe = await apiJson(app, "/api/v1/ai:transcribe", {
+      method: "POST",
+      bearer: accessToken,
+      json: {},
+    });
+    expect(transcribe.status).toBe(400);
+    expect((transcribe.body as { code?: number }).code).toBe(3);
+  });
 });

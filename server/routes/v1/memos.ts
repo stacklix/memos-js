@@ -4,6 +4,7 @@ import type { AppDeps } from "../../types/deps.js";
 import type { AuthPrincipal } from "../../types/auth.js";
 import { createRepository, type DbMemoRow } from "../../db/repository.js";
 import { GrpcCode, jsonError } from "../../lib/grpc-status.js";
+import { resolveFieldMaskPaths } from "../../lib/update-mask.js";
 import { attachmentToJson, memoToJson } from "../../lib/serializers.js";
 import { b64urlToUtf8, utf8ToB64url } from "../../lib/b64url.js";
 import { normalizeMemoStateFromClient, normalizeMemoVisibilityFromClient } from "../../lib/memo-enums.js";
@@ -50,7 +51,41 @@ export function createMemoRoutes(deps: AppDeps) {
       limit: 1000,
       offset: 0,
     });
-    return memoToJson(m, { attachments: attachments.map((a) => attachmentToJson(a)) });
+    const relations = await memoRelationsToJson(m);
+    const reactions = await memoReactionsToJson(m.id);
+    return memoToJson(m, {
+      attachments: attachments.map((a) => attachmentToJson(a)),
+      relations,
+      reactions,
+    });
+  }
+
+  async function memoRelationsToJson(m: DbMemoRow) {
+    const rels = await repo.listMemoRelations(m.id);
+    const out = [];
+    for (const rel of rels) {
+      const related = await repo.getMemoById(rel.related_memo_id);
+      out.push({
+        memo: { name: `memos/${m.id}`, snippet: m.snippet ?? "" },
+        relatedMemo: {
+          name: `memos/${rel.related_memo_id}`,
+          snippet: related?.snippet ?? "",
+        },
+        type: rel.relation_type,
+      });
+    }
+    return out;
+  }
+
+  async function memoReactionsToJson(memoId: string) {
+    const rx = await repo.listReactions(memoId);
+    return rx.map((x) => ({
+      name: `memos/${memoId}/reactions/${x.id}`,
+      creator: `users/${x.creator_username}`,
+      contentId: `memos/${memoId}`,
+      reactionType: x.reaction_type,
+      createTime: x.create_time,
+    }));
   }
 
   r.get("/", async (c) => {
@@ -189,6 +224,8 @@ export function createMemoRoutes(deps: AppDeps) {
       state?: unknown;
       pinned?: boolean;
       location?: unknown;
+      attachments?: { name?: string }[];
+      relations?: { relatedMemo?: { name?: string }; type?: string }[];
     };
     // Match golang v0.26.x contract: request body is Memo fields at top-level.
     const m = (await c.req.json()) as MemoBody;
@@ -209,8 +246,28 @@ export function createMemoRoutes(deps: AppDeps) {
       pinned: Boolean(m.pinned),
       location: locIn.value,
     });
+    const attachmentIds =
+      m.attachments
+        ?.map((a) => (a.name ? a.name.replace(/^attachments\//, "") : null))
+        .filter((x): x is string => Boolean(x)) ?? [];
+    if (attachmentIds.length > 0) {
+      await repo.setMemoAttachments(row.id, attachmentIds);
+    }
+    const pairs =
+      m.relations?.map((rel) => {
+        const rn = rel.relatedMemo?.name;
+        const rid = rn ? memoIdFromName(rn) : null;
+        return rid ? { relatedId: rid, type: rel.type ?? "REFERENCE" } : null;
+      }) ?? [];
+    if (pairs.length > 0) {
+      await repo.setMemoRelations(
+        row.id,
+        pairs.filter((p): p is { relatedId: string; type: string } => Boolean(p)),
+      );
+    }
     sseBus.emit({ type: "memo.created", name: `memos/${row.id}` });
-    return c.json(memoToJson(row));
+    const next = await repo.getMemoById(row.id);
+    return c.json(next ? await memoToJsonWithAttachments(next) : memoToJson(row));
   });
 
   r.get("/:id", async (c) => {
@@ -254,13 +311,13 @@ export function createMemoRoutes(deps: AppDeps) {
       displayTime?: string;
       display_time?: string;
       location?: unknown;
+      attachments?: { name?: string }[];
       updateMask?: { paths?: string[] };
       update_mask?: { paths?: string[] };
     };
     const body = (await c.req.json()) as MemoBody;
     if (!body) return jsonError(c, GrpcCode.INVALID_ARGUMENT, "memo required");
-    const rawPaths =
-      body.updateMask?.paths ?? body.update_mask?.paths ?? [];
+    const rawPaths = resolveFieldMaskPaths(c, body);
     if (rawPaths.length === 0) {
       return jsonError(c, GrpcCode.INVALID_ARGUMENT, "update_mask is required");
     }
@@ -296,6 +353,13 @@ export function createMemoRoutes(deps: AppDeps) {
         : undefined,
       ...locUpdate,
     });
+    if (hasPath("attachments") && body.attachments !== undefined) {
+      const attachmentIds =
+        body.attachments
+          .map((a) => (a.name ? a.name.replace(/^attachments\//, "") : null))
+          .filter((x): x is string => Boolean(x)) ?? [];
+      await repo.setMemoAttachments(id, attachmentIds);
+    }
     sseBus.emit({ type: "memo.updated", name: `memos/${id}` });
     const next = await repo.getMemoById(id);
     if (!next) return jsonError(c, GrpcCode.NOT_FOUND, "memo not found");

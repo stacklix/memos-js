@@ -31,16 +31,18 @@ function isSupportedAudioType(contentType: string): boolean {
   return SUPPORTED_AUDIO_TYPES.has(base);
 }
 
-export function createAIRoutes(deps: AppDeps) {
+function decodeBase64(content: string): Uint8Array<ArrayBufferLike> {
+  const bin = atob(content);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+export function createAIActionRoutes(deps: AppDeps) {
   const r = new Hono<{ Variables: ApiVariables }>();
   const repo = createRepository(deps.sql);
 
-  r.post("/:action", async (c) => {
-    const action = c.req.param("action");
-    if (action !== "transcribe") {
-      return jsonError(c, GrpcCode.NOT_FOUND, "unknown AI action");
-    }
-
+  r.post("/ai:transcribe", async (c) => {
     const auth = c.get("auth");
     if (!auth) return jsonError(c, GrpcCode.UNAUTHENTICATED, "permission denied");
 
@@ -66,10 +68,9 @@ export function createAIRoutes(deps: AppDeps) {
       return jsonError(c, GrpcCode.INVALID_ARGUMENT, "audio.content is required");
     }
 
-    // Decode base64 audio
-    let audioBytes: Buffer;
+    let audioBytes: Uint8Array<ArrayBufferLike>;
     try {
-      audioBytes = Buffer.from(audioContent, "base64");
+      audioBytes = decodeBase64(audioContent);
     } catch {
       return jsonError(c, GrpcCode.INVALID_ARGUMENT, "audio.content must be valid base64");
     }
@@ -80,7 +81,6 @@ export function createAIRoutes(deps: AppDeps) {
 
     let contentType = typeof body.audio?.contentType === "string" ? body.audio.contentType.trim() : "";
     if (!contentType) {
-      // Detect from magic bytes
       if (audioBytes[0] === 0x49 && audioBytes[1] === 0x44 && audioBytes[2] === 0x33) {
         contentType = "audio/mpeg";
       } else if (audioBytes[0] === 0x52 && audioBytes[1] === 0x49 && audioBytes[2] === 0x46 && audioBytes[3] === 0x46) {
@@ -100,7 +100,6 @@ export function createAIRoutes(deps: AppDeps) {
     const prompt = typeof body.config?.prompt === "string" ? body.config.prompt.trim() : "";
     const language = typeof body.config?.language === "string" ? body.config.language.trim() : "";
 
-    // Look up the AI provider config
     const aiSetting = parseAISettingFromRaw(await repo.getInstanceSettingRaw("AI"));
     const provider = aiSetting.providers.find((p) => p.id === providerId);
     if (!provider) {
@@ -110,7 +109,6 @@ export function createAIRoutes(deps: AppDeps) {
       return jsonError(c, GrpcCode.FAILED_PRECONDITION, "AI provider has no API key configured");
     }
 
-    // Call OpenAI Whisper (or compatible) API
     const endpoint = provider.endpoint?.trim() || "https://api.openai.com/v1";
     const transcribeUrl = `${endpoint.replace(/\/$/, "")}/audio/transcriptions`;
 

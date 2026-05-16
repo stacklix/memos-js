@@ -2,20 +2,25 @@ import { create } from "@bufbuild/protobuf";
 import { FieldMaskSchema, timestampDate, timestampFromDate } from "@bufbuild/protobuf/wkt";
 import { isEqual } from "lodash-es";
 import { memoServiceClient } from "@/connect";
+import type { Attachment } from "@/types/proto/api/v1/attachment_service_pb";
+import { AttachmentSchema } from "@/types/proto/api/v1/attachment_service_pb";
 import type { Memo } from "@/types/proto/api/v1/memo_service_pb";
-import { LocationSchema, MemoSchema } from "@/types/proto/api/v1/memo_service_pb";
+import { MemoSchema } from "@/types/proto/api/v1/memo_service_pb";
 import type { EditorState } from "../state";
 import { uploadService } from "./uploadService";
 
-function memoLocationFingerprint(l: Memo["location"]): string | null {
-  if (!l) return null;
-  return JSON.stringify([l.placeholder, l.latitude, l.longitude]);
+/**
+ * Converts attachments to reference format for API requests.
+ * The backend only needs the attachment name to link it to a memo.
+ */
+function toAttachmentReferences(attachments: Attachment[]): Attachment[] {
+  return attachments.map((a) => create(AttachmentSchema, { name: a.name }));
 }
 
 function buildUpdateMask(
   prevMemo: Memo,
   state: EditorState,
-  _allAttachments: typeof state.metadata.attachments,
+  allAttachments: typeof state.metadata.attachments,
 ): { mask: Set<string>; patch: Partial<Memo> } {
   const mask = new Set<string>();
   const patch: Partial<Memo> = {
@@ -31,22 +36,21 @@ function buildUpdateMask(
     mask.add("visibility");
     patch.visibility = state.metadata.visibility;
   }
+  if (!isEqual(allAttachments, prevMemo.attachments)) {
+    mask.add("attachments");
+    patch.attachments = toAttachmentReferences(allAttachments);
+  }
   if (!isEqual(state.metadata.relations, prevMemo.relations)) {
     mask.add("relations");
     patch.relations = state.metadata.relations;
   }
-  if (memoLocationFingerprint(state.metadata.location) !== memoLocationFingerprint(prevMemo.location)) {
+  if (!isEqual(state.metadata.location, prevMemo.location)) {
     mask.add("location");
-    if (state.metadata.location) {
-      patch.location = create(LocationSchema, {
-        placeholder: state.metadata.location.placeholder,
-        latitude: state.metadata.location.latitude,
-        longitude: state.metadata.location.longitude,
-      });
-    }
+    patch.location = state.metadata.location;
   }
 
-  if (["content", "relations"].some((key) => mask.has(key))) {
+  // Auto-update timestamp if content changed
+  if (["content", "attachments", "relations", "location"].some((key) => mask.has(key))) {
     mask.add("update_time");
   }
 
@@ -78,8 +82,8 @@ export const memoService = {
     },
   ): Promise<{ memoName: string; hasChanges: boolean }> {
     // 1. Upload local files first
-    const uploadedAttachments = await uploadService.uploadFiles(state.localFiles);
-    const allAttachments = [...state.metadata.attachments, ...uploadedAttachments];
+    const newAttachments = await uploadService.uploadFiles(state.localFiles);
+    const allAttachments = [...state.metadata.attachments, ...newAttachments];
 
     // 2. Update existing memo
     if (options.memoName) {
@@ -94,10 +98,6 @@ export const memoService = {
         memo: create(MemoSchema, patch as Record<string, unknown>),
         updateMask: create(FieldMaskSchema, { paths: Array.from(mask) }),
       });
-      await memoServiceClient.setMemoAttachments({
-        name: memo.name,
-        attachments: allAttachments,
-      });
       return { memoName: memo.name, hasChanges: true };
     }
 
@@ -105,18 +105,11 @@ export const memoService = {
     const memoData = create(MemoSchema, {
       content: state.content,
       visibility: state.metadata.visibility,
+      attachments: toAttachmentReferences(allAttachments),
       relations: state.metadata.relations,
+      location: state.metadata.location,
       createTime: state.timestamps.createTime ? timestampFromDate(state.timestamps.createTime) : undefined,
       updateTime: state.timestamps.updateTime ? timestampFromDate(state.timestamps.updateTime) : undefined,
-      ...(state.metadata.location
-        ? {
-            location: create(LocationSchema, {
-              placeholder: state.metadata.location.placeholder,
-              latitude: state.metadata.location.latitude,
-              longitude: state.metadata.location.longitude,
-            }),
-          }
-        : {}),
     });
 
     const memo = options.parentMemoName
@@ -125,13 +118,6 @@ export const memoService = {
           comment: memoData,
         })
       : await memoServiceClient.createMemo({ memo: memoData });
-
-    if (allAttachments.length > 0) {
-      await memoServiceClient.setMemoAttachments({
-        name: memo.name,
-        attachments: allAttachments,
-      });
-    }
 
     return { memoName: memo.name, hasChanges: true };
   },
@@ -156,13 +142,12 @@ export const memoService = {
         updateTime: memo.updateTime ? timestampDate(memo.updateTime) : undefined,
       },
       localFiles: [],
-      voiceRecorder: {
+      audioRecorder: {
         isSupported: true,
         permission: "unknown",
         status: "idle",
         elapsedSeconds: 0,
         error: undefined,
-        recording: undefined,
       },
     };
   },

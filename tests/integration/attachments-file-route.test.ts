@@ -30,5 +30,28 @@ describe("integration: attachments file route", () => {
     const text = await res.text();
     expect(text).toBe(content);
   });
-});
 
+  it("serves user data URI avatar via golang /file/users/:identifier/avatar path", async () => {
+    const app = createTestApp();
+    await postFirstUser(app, { username: "avataru", password: "secret123", role: "USER" });
+    const { accessToken } = await signIn(app, "avataru", "secret123");
+    const avatarBytes = Buffer.from("avatar-bytes", "utf-8");
+    const avatarUrl = `data:image/png;base64,${avatarBytes.toString("base64")}`;
+
+    const patch = await apiJson<{ avatarUrl: string }>(app, "/api/v1/users/avataru", {
+      method: "PATCH",
+      bearer: accessToken,
+      json: {
+        user: { avatarUrl },
+        updateMask: { paths: ["avatarUrl"] },
+      },
+    });
+    expect(patch.status).toBe(200);
+    expect(patch.body.avatarUrl).toBe("/file/users/avataru/avatar");
+
+    const res = await apiRequest(app, "/file/users/avataru/avatar");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("image/png");
+    expect(Buffer.from(await res.arrayBuffer())).toEqual(avatarBytes);
+  });
+});

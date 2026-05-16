@@ -12,9 +12,10 @@ import { handleError } from "@/lib/error";
 import {
   InstanceSetting_Key,
   InstanceSetting_StorageSetting,
+  InstanceSetting_StorageSetting_S3Config,
   InstanceSetting_StorageSetting_S3ConfigSchema,
-  InstanceSetting_StorageSettingSchema,
   InstanceSetting_StorageSetting_StorageType,
+  InstanceSetting_StorageSettingSchema,
   InstanceSettingSchema,
 } from "@/types/proto/api/v1/instance_service_pb";
 import { useTranslate } from "@/utils/i18n";
@@ -50,11 +51,24 @@ const STORAGE_OPTIONS: Array<{
   },
 ];
 
+const createS3Config = (
+  current: InstanceSetting_StorageSetting_S3Config | undefined,
+  patch: Partial<InstanceSetting_StorageSetting_S3Config>,
+) =>
+  create(InstanceSetting_StorageSetting_S3ConfigSchema, {
+    accessKeyId: current?.accessKeyId ?? "",
+    accessKeySecret: current?.accessKeySecret ?? "",
+    endpoint: current?.endpoint ?? "",
+    region: current?.region ?? "",
+    bucket: current?.bucket ?? "",
+    usePathStyle: current?.usePathStyle ?? false,
+    ...patch,
+  });
+
 const StorageSection = () => {
   const t = useTranslate();
   const { storageSetting: originalSetting, storageSupportedTypes, updateSetting, fetchSetting } = useInstance();
-  const [localSetting, setLocalSetting] =
-    useState<InstanceSetting_StorageSetting>(originalSetting);
+  const [localSetting, setLocalSetting] = useState<InstanceSetting_StorageSetting>(originalSetting);
 
   useEffect(() => {
     setLocalSetting(originalSetting);
@@ -126,10 +140,7 @@ const StorageSection = () => {
           >
             {orderedStorageOptions.map((option) => (
               <div key={option.id} className="flex items-center space-x-2">
-                <RadioGroupItem
-                  value={String(option.value)}
-                  id={option.id}
-                />
+                <RadioGroupItem value={String(option.value)} id={option.id} />
                 <Label htmlFor={option.id}>{typeof option.label === "function" ? option.label(t) : option.label}</Label>
               </div>
             ))}
@@ -168,10 +179,7 @@ const StorageSection = () => {
               value={localSetting.s3Config?.accessKeyId ?? ""}
               onChange={(e) =>
                 updatePartial({
-                  s3Config: create(InstanceSetting_StorageSetting_S3ConfigSchema, {
-                    ...(localSetting.s3Config ?? {}),
-                    accessKeyId: e.target.value,
-                  }),
+                  s3Config: createS3Config(localSetting.s3Config, { accessKeyId: e.target.value }),
                 })
               }
             />
@@ -184,10 +192,7 @@ const StorageSection = () => {
               value={localSetting.s3Config?.accessKeySecret ?? ""}
               onChange={(e) =>
                 updatePartial({
-                  s3Config: create(InstanceSetting_StorageSetting_S3ConfigSchema, {
-                    ...(localSetting.s3Config ?? {}),
-                    accessKeySecret: e.target.value,
-                  }),
+                  s3Config: createS3Config(localSetting.s3Config, { accessKeySecret: e.target.value }),
                 })
               }
             />
@@ -199,10 +204,7 @@ const StorageSection = () => {
               value={localSetting.s3Config?.endpoint ?? ""}
               onChange={(e) =>
                 updatePartial({
-                  s3Config: create(InstanceSetting_StorageSetting_S3ConfigSchema, {
-                    ...(localSetting.s3Config ?? {}),
-                    endpoint: e.target.value,
-                  }),
+                  s3Config: createS3Config(localSetting.s3Config, { endpoint: e.target.value }),
                 })
               }
             />
@@ -214,10 +216,7 @@ const StorageSection = () => {
               value={localSetting.s3Config?.region ?? ""}
               onChange={(e) =>
                 updatePartial({
-                  s3Config: create(InstanceSetting_StorageSetting_S3ConfigSchema, {
-                    ...(localSetting.s3Config ?? {}),
-                    region: e.target.value,
-                  }),
+                  s3Config: createS3Config(localSetting.s3Config, { region: e.target.value }),
                 })
               }
             />
@@ -229,10 +228,7 @@ const StorageSection = () => {
               value={localSetting.s3Config?.bucket ?? ""}
               onChange={(e) =>
                 updatePartial({
-                  s3Config: create(InstanceSetting_StorageSetting_S3ConfigSchema, {
-                    ...(localSetting.s3Config ?? {}),
-                    bucket: e.target.value,
-                  }),
+                  s3Config: createS3Config(localSetting.s3Config, { bucket: e.target.value }),
                 })
               }
             />
@@ -243,10 +239,7 @@ const StorageSection = () => {
               checked={localSetting.s3Config?.usePathStyle ?? false}
               onCheckedChange={(checked) =>
                 updatePartial({
-                  s3Config: create(InstanceSetting_StorageSetting_S3ConfigSchema, {
-                    ...(localSetting.s3Config ?? {}),
-                    usePathStyle: checked,
-                  }),
+                  s3Config: createS3Config(localSetting.s3Config, { usePathStyle: checked }),
                 })
               }
             />

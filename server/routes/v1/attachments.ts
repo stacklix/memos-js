@@ -8,7 +8,7 @@ import { AttachmentStorageConfigError } from "../../services/attachment-storage.
 import { parseInstanceStorageSetting } from "../../lib/instance-storage-setting.js";
 import { resolveAttachmentStorage } from "../../services/attachment-storage-resolver.js";
 import { stripJpegExifMetadata } from "../../lib/strip-jpeg-exif.js";
-import { parseAttachmentFilter } from "../../lib/attachment-filter.js";
+import { attachmentMatchesParsedFilter, parseAttachmentFilter } from "../../lib/attachment-filter.js";
 
 function attachmentIdFromName(name: string): string | null {
   const p = name.startsWith("attachments/") ? name.slice("attachments/".length) : name;
@@ -98,24 +98,38 @@ export function createAttachmentRoutes(deps: AppDeps) {
       return jsonError(c, GrpcCode.INVALID_ARGUMENT, "invalid page token");
     }
     const filter = c.req.query("filter") ?? "";
-    let parsedFilter: { unlinkedOnly?: boolean; linkedOnly?: boolean; memoUid?: string };
+    let parsedFilter: ReturnType<typeof parseAttachmentFilter>;
     try {
       parsedFilter = parseAttachmentFilter(filter);
     } catch {
       return jsonError(c, GrpcCode.INVALID_ARGUMENT, "invalid filter");
     }
+    const needsMemoryFilter =
+      parsedFilter.filenameContains !== undefined ||
+      parsedFilter.mimeTypeEq !== undefined ||
+      parsedFilter.mimeTypeNe !== undefined ||
+      parsedFilter.mimeTypeIn !== undefined;
     const rows = await repo.listAttachments({
       creatorUsername: auth.username,
-      limit: pageSize,
-      offset: Number.isFinite(offset) ? offset : 0,
+      limit: needsMemoryFilter ? 1000 : pageSize,
+      offset: needsMemoryFilter ? 0 : Number.isFinite(offset) ? offset : 0,
       ...(parsedFilter.unlinkedOnly ? { unlinkedOnly: true } : {}),
       ...(parsedFilter.linkedOnly ? { linkedOnly: true } : {}),
       ...(parsedFilter.memoUid ? { memoUid: parsedFilter.memoUid } : {}),
     });
+    const filteredRows = needsMemoryFilter
+      ? rows.filter((x) => attachmentMatchesParsedFilter(x, parsedFilter))
+      : rows;
+    const pagedRows = needsMemoryFilter
+      ? filteredRows.slice(Number.isFinite(offset) ? offset : 0, (Number.isFinite(offset) ? offset : 0) + pageSize)
+      : filteredRows;
     return c.json({
-      attachments: rows.map((x) => attachmentToJson(x)),
-      nextPageToken: rows.length === pageSize ? String((Number.isFinite(offset) ? offset : 0) + pageSize) : "",
-      totalSize: rows.length,
+      attachments: pagedRows.map((x) => attachmentToJson(x)),
+      nextPageToken:
+        filteredRows.length > (Number.isFinite(offset) ? offset : 0) + pageSize
+          ? String((Number.isFinite(offset) ? offset : 0) + pageSize)
+          : "",
+      totalSize: filteredRows.length,
     });
   });
 
@@ -209,38 +223,6 @@ export function createAttachmentRoutes(deps: AppDeps) {
     return c.json(attachmentToJson(row));
   });
 
-  r.post("/:action", async (c) => {
-    if (c.req.param("action") !== ":batchDelete") {
-      return jsonError(c, GrpcCode.UNIMPLEMENTED, "unknown action");
-    }
-    const auth = c.get("auth");
-    if (!auth) return jsonError(c, GrpcCode.UNAUTHENTICATED, "permission denied");
-    type Body = { names?: string[] };
-    let body: Body;
-    try {
-      body = (await c.req.json()) as Body;
-    } catch {
-      return jsonError(c, GrpcCode.INVALID_ARGUMENT, "invalid json");
-    }
-    const names = Array.isArray(body.names) ? body.names : [];
-    if (names.length > 100) {
-      return jsonError(c, GrpcCode.INVALID_ARGUMENT, "too many attachment names; max 100");
-    }
-    for (const name of names) {
-      const uid = attachmentIdFromName(name);
-      if (!uid) continue;
-      const existing = await repo.getAttachmentByUid(uid);
-      if (!existing) continue;
-      if (existing.creator_username !== auth.username && auth.role !== "ADMIN") {
-        return jsonError(c, GrpcCode.PERMISSION_DENIED, "permission denied");
-      }
-      const storage = await getStorage();
-      await storage.delete(existing.reference);
-      await repo.deleteAttachment(uid);
-    }
-    return c.json({});
-  });
-
   r.get("/:attachment", async (c) => {
     const uid = attachmentIdFromName(c.req.param("attachment"));
     if (!uid) return jsonError(c, GrpcCode.INVALID_ARGUMENT, "invalid attachment id");
@@ -294,6 +276,48 @@ export function createAttachmentRoutes(deps: AppDeps) {
     const storage = await getStorage();
     await storage.delete(existing.reference);
     await repo.deleteAttachment(uid);
+    return c.json({});
+  });
+
+  return r;
+}
+
+export function createAttachmentActionRoutes(deps: AppDeps) {
+  const r = new Hono<{ Variables: ApiVariables }>();
+  const repo = createRepository(deps.sql);
+
+  async function getStorage() {
+    const raw = await repo.getInstanceSettingRaw("STORAGE");
+    const setting = parseInstanceStorageSetting(raw, deps.defaultAttachmentStorageType);
+    return await resolveAttachmentStorage(deps, setting);
+  }
+
+  r.post("/attachments:batchDelete", async (c) => {
+    const auth = c.get("auth");
+    if (!auth) return jsonError(c, GrpcCode.UNAUTHENTICATED, "permission denied");
+    type Body = { names?: string[] };
+    let body: Body;
+    try {
+      body = (await c.req.json()) as Body;
+    } catch {
+      return jsonError(c, GrpcCode.INVALID_ARGUMENT, "invalid json");
+    }
+    const names = Array.isArray(body.names) ? body.names : [];
+    if (names.length > 100) {
+      return jsonError(c, GrpcCode.INVALID_ARGUMENT, "too many attachment names; max 100");
+    }
+    for (const name of names) {
+      const uid = attachmentIdFromName(name);
+      if (!uid) continue;
+      const existing = await repo.getAttachmentByUid(uid);
+      if (!existing) continue;
+      if (existing.creator_username !== auth.username && auth.role !== "ADMIN") {
+        return jsonError(c, GrpcCode.PERMISSION_DENIED, "permission denied");
+      }
+      const storage = await getStorage();
+      await storage.delete(existing.reference);
+      await repo.deleteAttachment(uid);
+    }
     return c.json({});
   });
 

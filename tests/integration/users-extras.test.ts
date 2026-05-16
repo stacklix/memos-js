@@ -1,10 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { apiJson } from "../helpers/http.js";
 import { createTestApp } from "../helpers/test-app.js";
 import { postFirstUser, postMemo, signIn } from "../helpers/seed.js";
 import { GrpcCode } from "../../server/lib/grpc-status.js";
 
 describe("integration: users extras (shortcuts, PAT, webhooks, notifications)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it("shortcuts CRUD round-trip", async () => {
     const app = createTestApp();
     await postFirstUser(app, { username: "sc", password: "secret123", role: "USER" });
@@ -109,6 +113,79 @@ describe("integration: users extras (shortcuts, PAT, webhooks, notifications)", 
     expect(Array.isArray((res.body as { notifications: unknown[] }).notifications)).toBe(true);
   });
 
+  it("links an OAuth identity to the current user", async () => {
+    const app = createTestApp();
+    await postFirstUser(app, { username: "idpadmin", password: "secret123", role: "ADMIN" });
+    const { accessToken } = await signIn(app, "idpadmin", "secret123");
+
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url === "https://idp.example/token") {
+        expect(init?.method).toBe("POST");
+        return new Response(JSON.stringify({ access_token: "oauth-token" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url === "https://idp.example/userinfo") {
+        expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer oauth-token");
+        return new Response(JSON.stringify({ sub: "extern-1", name: "Extern User", email: "extern@example.com" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+
+    const createProvider = await apiJson(app, "/api/v1/identity-providers", {
+      method: "POST",
+      bearer: accessToken,
+      json: {
+        identityProviderId: "oauth-test",
+        identityProvider: {
+          title: "OAuth Test",
+          type: "OAUTH2",
+          config: {
+            oauth2Config: {
+              clientId: "client-id",
+              clientSecret: "client-secret",
+              authUrl: "https://idp.example/auth",
+              tokenUrl: "https://idp.example/token",
+              userInfoUrl: "https://idp.example/userinfo",
+              scopes: ["openid"],
+              fieldMapping: {
+                identifier: "sub",
+                displayName: "name",
+                email: "email",
+                avatarUrl: "",
+              },
+            },
+          },
+        },
+      },
+    });
+    expect(createProvider.status).toBe(200);
+
+    const linked = await apiJson<{ name: string; idpName: string; externUid: string }>(app, "/api/v1/users/idpadmin/linkedIdentities", {
+      method: "POST",
+      bearer: accessToken,
+      json: {
+        idpName: "identity-providers/oauth-test",
+        code: "oauth-code",
+        redirectUri: "http://localhost/auth/callback",
+        codeVerifier: "verifier",
+      },
+    });
+
+    expect(linked.status).toBe(200);
+    expect(linked.body).toMatchObject({
+      name: "users/idpadmin/linkedIdentities/oauth-test",
+      idpName: "identity-providers/oauth-test",
+      externUid: "extern-1",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("returns INVALID_ARGUMENT for malformed pageToken on user settings/webhooks/shortcuts", async () => {
     const app = createTestApp();
     await postFirstUser(app, { username: "pg", password: "secret123", role: "USER" });
@@ -164,13 +241,13 @@ describe("integration: users extras (shortcuts, PAT, webhooks, notifications)", 
     expect(hasGeneralSetting).toBe(true);
   });
 
-  it("ignores unsupported updateMask paths for user/webhook updates (golang-compatible)", async () => {
+  it("rejects invalid user updateMask paths; ignores unknown webhook mask paths (golang)", async () => {
     const app = createTestApp();
     await postFirstUser(app, { username: "um", password: "secret123", role: "USER" });
     const { accessToken } = await signIn(app, "um", "secret123");
     const base = "/api/v1/users/um";
 
-    const userPatch = await apiJson<{ displayName: string }>(app, `${base}`, {
+    const userPatch = await apiJson<{ code: number; message?: string }>(app, `${base}`, {
       method: "PATCH",
       bearer: accessToken,
       json: {
@@ -178,9 +255,9 @@ describe("integration: users extras (shortcuts, PAT, webhooks, notifications)", 
         updateMask: { paths: ["nickname"] },
       },
     });
-    expect(userPatch.status).toBe(200);
-    // Unknown mask path is ignored; no field update.
-    expect(userPatch.body.displayName).toBe("");
+    expect(userPatch.status).toBe(400);
+    expect(userPatch.body.code).toBe(GrpcCode.INVALID_ARGUMENT);
+    expect(userPatch.body.message).toMatch(/invalid update path/i);
 
     const webhookCreate = await apiJson<{ name: string }>(app, `${base}/webhooks`, {
       method: "POST",
@@ -336,20 +413,18 @@ describe("integration: users extras (shortcuts, PAT, webhooks, notifications)", 
       method: "PATCH",
       bearer: ownerToken,
       json: {
-        setting: {
-          notificationSetting: {
-            email: {
-              enabled: true,
-              smtpHost: "smtp.example.com",
-              smtpPort: 587,
-              smtpUsername: "bot@example.com",
-              smtpPassword: "secret",
-              fromEmail: "bot@example.com",
-              fromName: "memos bot",
-              replyTo: "noreply@example.com",
-              useTls: true,
-              useSsl: false,
-            },
+        notificationSetting: {
+          email: {
+            enabled: true,
+            smtpHost: "smtp.example.com",
+            smtpPort: 587,
+            smtpUsername: "bot@example.com",
+            smtpPassword: "secret",
+            fromEmail: "bot@example.com",
+            fromName: "memos bot",
+            replyTo: "noreply@example.com",
+            useTls: true,
+            useSsl: false,
           },
         },
       },
@@ -408,17 +483,15 @@ describe("integration: users extras (shortcuts, PAT, webhooks, notifications)", 
       method: "PATCH",
       bearer: ownerToken,
       json: {
-        setting: {
-          notificationSetting: {
-            email: {
-              enabled: true,
-              smtpHost: "smtp.example.com",
-              smtpPort: 587,
-              smtpUsername: "bot@example.com",
-              smtpPassword: "original-password",
-              fromEmail: "bot@example.com",
-              useTls: true,
-            },
+        notificationSetting: {
+          email: {
+            enabled: true,
+            smtpHost: "smtp.example.com",
+            smtpPort: 587,
+            smtpUsername: "bot@example.com",
+            smtpPassword: "original-password",
+            fromEmail: "bot@example.com",
+            useTls: true,
           },
         },
       },
@@ -428,12 +501,10 @@ describe("integration: users extras (shortcuts, PAT, webhooks, notifications)", 
       method: "PATCH",
       bearer: ownerToken,
       json: {
-        setting: {
-          notificationSetting: {
-            email: {
-              smtpPassword: "",
-              smtpHost: "smtp2.example.com",
-            },
+        notificationSetting: {
+          email: {
+            smtpPassword: "",
+            smtpHost: "smtp2.example.com",
           },
         },
       },

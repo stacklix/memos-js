@@ -90,6 +90,7 @@ export function createInstanceRoutes(deps: AppDeps) {
       version: deps.instanceVersion,
       demo: deps.demo,
       instanceUrl: deps.instanceUrl,
+      commit: "",
       admin: admin ? userToJson(admin, viewer) : null,
     });
   });
@@ -195,64 +196,63 @@ export function createInstanceRoutes(deps: AppDeps) {
       return jsonError(c, GrpcCode.UNIMPLEMENTED, "this setting cannot be updated via API yet");
     }
     type Body = {
-      setting?: {
-        generalSetting?: {
-          disallowUserRegistration?: boolean;
-          disallowPasswordAuth?: boolean;
-          additionalScript?: string;
-          additionalStyle?: string;
-          customProfile?: {
-            title?: string;
-            description?: string;
-            logoUrl?: string;
-          };
-          weekStartDayOffset?: number;
-          disallowChangeUsername?: boolean;
-          disallowChangeNickname?: boolean;
+      name?: string;
+      generalSetting?: {
+        disallowUserRegistration?: boolean;
+        disallowPasswordAuth?: boolean;
+        additionalScript?: string;
+        additionalStyle?: string;
+        customProfile?: {
+          title?: string;
+          description?: string;
+          logoUrl?: string;
         };
-        memoRelatedSetting?: {
-          displayWithUpdateTime?: boolean;
-          contentLengthLimit?: number;
-          enableDoubleClickEdit?: boolean;
-          reactions?: unknown;
+        weekStartDayOffset?: number;
+        disallowChangeUsername?: boolean;
+        disallowChangeNickname?: boolean;
+      };
+      memoRelatedSetting?: {
+        displayWithUpdateTime?: boolean;
+        contentLengthLimit?: number;
+        enableDoubleClickEdit?: boolean;
+        reactions?: unknown;
+      };
+      tagsSetting?: { tags?: unknown };
+      storageSetting?: {
+        storageType?: unknown;
+        filepathTemplate?: string;
+        uploadSizeLimitMb?: number;
+        s3Config?: {
+          accessKeyId?: string;
+          accessKeySecret?: string;
+          endpoint?: string;
+          region?: string;
+          bucket?: string;
+          usePathStyle?: boolean;
         };
-        tagsSetting?: { tags?: unknown };
-        storageSetting?: {
-          storageType?: unknown;
-          filepathTemplate?: string;
-          uploadSizeLimitMb?: number;
-          s3Config?: {
-            accessKeyId?: string;
-            accessKeySecret?: string;
-            endpoint?: string;
-            region?: string;
-            bucket?: string;
-            usePathStyle?: boolean;
-          };
+      };
+      notificationSetting?: {
+        email?: {
+          enabled?: boolean;
+          smtpHost?: string;
+          smtpPort?: number;
+          smtpUsername?: string;
+          smtpPassword?: string;
+          fromEmail?: string;
+          fromName?: string;
+          replyTo?: string;
+          useTls?: boolean;
+          useSsl?: boolean;
         };
-        notificationSetting?: {
-          email?: {
-            enabled?: boolean;
-            smtpHost?: string;
-            smtpPort?: number;
-            smtpUsername?: string;
-            smtpPassword?: string;
-            fromEmail?: string;
-            fromName?: string;
-            replyTo?: string;
-            useTls?: boolean;
-            useSsl?: boolean;
-          };
-        };
-        aiSetting?: {
-          providers?: Array<{
-            id?: string;
-            title?: string;
-            type?: unknown;
-            endpoint?: string;
-            apiKey?: string;
-          }>;
-        };
+      };
+      aiSetting?: {
+        providers?: Array<{
+          id?: string;
+          title?: string;
+          type?: unknown;
+          endpoint?: string;
+          apiKey?: string;
+        }>;
       };
     };
     let body: Body;
@@ -263,9 +263,9 @@ export function createInstanceRoutes(deps: AppDeps) {
     }
 
     if (key === "GENERAL") {
-      const gs = body.setting?.generalSetting;
+      const gs = body.generalSetting;
       if (!gs) {
-        return jsonError(c, GrpcCode.INVALID_ARGUMENT, "setting.generalSetting required");
+        return jsonError(c, GrpcCode.INVALID_ARGUMENT, "generalSetting required");
       }
       await repo.upsertGeneralSetting({
         disallowUserRegistration: gs.disallowUserRegistration,
@@ -294,9 +294,9 @@ export function createInstanceRoutes(deps: AppDeps) {
     }
 
     if (key === "MEMO_RELATED") {
-      const mr = body.setting?.memoRelatedSetting;
+      const mr = body.memoRelatedSetting;
       if (!mr) {
-        return jsonError(c, GrpcCode.INVALID_ARGUMENT, "setting.memoRelatedSetting required");
+        return jsonError(c, GrpcCode.INVALID_ARGUMENT, "memoRelatedSetting required");
       }
       const reactions = Array.isArray(mr.reactions)
         ? mr.reactions.filter((x): x is string => typeof x === "string")
@@ -315,9 +315,9 @@ export function createInstanceRoutes(deps: AppDeps) {
     }
 
     if (key === "TAGS") {
-      const ts = body.setting?.tagsSetting;
+      const ts = body.tagsSetting;
       if (!ts || typeof ts !== "object") {
-        return jsonError(c, GrpcCode.INVALID_ARGUMENT, "setting.tagsSetting required");
+        return jsonError(c, GrpcCode.INVALID_ARGUMENT, "tagsSetting required");
       }
       const tags = (ts as { tags?: unknown }).tags;
       if (!tags || typeof tags !== "object" || Array.isArray(tags)) {
@@ -331,9 +331,9 @@ export function createInstanceRoutes(deps: AppDeps) {
     }
 
     if (key === "STORAGE") {
-      const ss = body.setting?.storageSetting;
+      const ss = body.storageSetting;
       if (!ss) {
-        return jsonError(c, GrpcCode.INVALID_ARGUMENT, "setting.storageSetting required");
+        return jsonError(c, GrpcCode.INVALID_ARGUMENT, "storageSetting required");
       }
       const current = parseInstanceStorageSetting(
         await repo.getInstanceSettingRaw("STORAGE"),
@@ -402,9 +402,9 @@ export function createInstanceRoutes(deps: AppDeps) {
     }
 
     if (key === "NOTIFICATION") {
-      const ns = body.setting?.notificationSetting;
+      const ns = body.notificationSetting;
       if (!ns || typeof ns !== "object") {
-        return jsonError(c, GrpcCode.INVALID_ARGUMENT, "setting.notificationSetting required");
+        return jsonError(c, GrpcCode.INVALID_ARGUMENT, "notificationSetting required");
       }
       const current = parseInstanceNotificationSetting(await repo.getInstanceSettingRaw("NOTIFICATION"));
       const e = ns.email ?? {};
@@ -437,9 +437,9 @@ export function createInstanceRoutes(deps: AppDeps) {
     }
 
     if (key === "AI") {
-      const as = body.setting?.aiSetting;
+      const as = body.aiSetting;
       if (!as || typeof as !== "object") {
-        return jsonError(c, GrpcCode.INVALID_ARGUMENT, "setting.aiSetting required");
+        return jsonError(c, GrpcCode.INVALID_ARGUMENT, "aiSetting required");
       }
       const current = parseAISettingFromRaw(await repo.getInstanceSettingRaw("AI"));
       const incoming = Array.isArray(as.providers) ? as.providers : [];

@@ -2,10 +2,10 @@ import {
   CogIcon,
   DatabaseIcon,
   HeartHandshakeIcon,
+  KeyIcon,
   LibraryIcon,
   LucideIcon,
   Settings2Icon,
-  ShieldCheckIcon,
   TagsIcon,
   UserIcon,
   UsersIcon,
@@ -21,8 +21,8 @@ import MemoRelatedSettings from "@/components/Settings/MemoRelatedSettings";
 import MyAccountSection from "@/components/Settings/MyAccountSection";
 import PreferencesSection from "@/components/Settings/PreferencesSection";
 import SectionMenuItem from "@/components/Settings/SectionMenuItem";
-import StorageSection from "@/components/Settings/StorageSection";
 import SSOSection from "@/components/Settings/SSOSection";
+import StorageSection from "@/components/Settings/StorageSection";
 import TagsSection from "@/components/Settings/TagsSection";
 import WebhookSection from "@/components/Settings/WebhookSection";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -33,21 +33,13 @@ import { InstanceSetting_Key } from "@/types/proto/api/v1/instance_service_pb";
 import { User_Role } from "@/types/proto/api/v1/user_service_pb";
 import { useTranslate } from "@/utils/i18n";
 
-type SettingSection =
-  | "my-account"
-  | "preference"
-  | "webhook"
-  | "member"
-  | "system"
-  | "memo"
-  | "storage"
-  | "tags"
-  | "sso"
-  | "ai";
+type SettingSection = "my-account" | "preference" | "webhook" | "member" | "system" | "memo" | "storage" | "sso" | "tags" | "ai";
 
 const BASIC_SECTIONS: SettingSection[] = ["my-account", "preference", "webhook"];
 const ADMIN_SECTIONS: SettingSection[] = ["member", "system", "memo", "tags", "storage", "sso", "ai"];
-const LAST_SETTING_SECTION_STORAGE_KEY = "memos:last-setting-section";
+const GITHUB_COMMIT_URL_PREFIX = "https://github.com/usememos/memos/commit/";
+
+const isCommitSha = (commit: string) => /^[0-9a-f]{7,40}$/i.test(commit);
 
 const SECTION_ICON_MAP: Record<SettingSection, LucideIcon> = {
   "my-account": UserIcon,
@@ -58,7 +50,7 @@ const SECTION_ICON_MAP: Record<SettingSection, LucideIcon> = {
   memo: LibraryIcon,
   storage: DatabaseIcon,
   tags: TagsIcon,
-  sso: ShieldCheckIcon,
+  sso: KeyIcon,
   ai: HeartHandshakeIcon,
 };
 
@@ -83,6 +75,7 @@ const Setting = () => {
   const { profile, fetchSetting } = useInstance();
   const [selectedSection, setSelectedSection] = useState<SettingSection>("my-account");
   const isHost = user?.role === User_Role.ADMIN;
+  const commitUrl = isCommitSha(profile.commit) ? `${GITHUB_COMMIT_URL_PREFIX}${profile.commit}` : "";
 
   const settingsSectionList = useMemo(() => {
     return isHost ? [...BASIC_SECTIONS, ...ADMIN_SECTIONS] : [...BASIC_SECTIONS];
@@ -90,16 +83,8 @@ const Setting = () => {
 
   useEffect(() => {
     const hash = location.hash.slice(1) as SettingSection;
-    const saved = localStorage.getItem(LAST_SETTING_SECTION_STORAGE_KEY) as SettingSection | null;
-    const savedSection = saved && settingsSectionList.includes(saved) ? saved : null;
-    const nextSection = settingsSectionList.includes(hash)
-      ? hash
-      : (savedSection ?? "my-account");
+    const nextSection = settingsSectionList.includes(hash) ? hash : "my-account";
     setSelectedSection(nextSection);
-    localStorage.setItem(LAST_SETTING_SECTION_STORAGE_KEY, nextSection);
-    if (!location.hash && nextSection) {
-      window.history.replaceState(null, "", `${location.pathname}#${nextSection}`);
-    }
   }, [location.hash, settingsSectionList]);
 
   useEffect(() => {
@@ -113,7 +98,6 @@ const Setting = () => {
   }, [isHost, fetchSetting]);
 
   const handleSectionSelectorItemClick = (section: SettingSection) => {
-    localStorage.setItem(LAST_SETTING_SECTION_STORAGE_KEY, section);
     window.location.hash = section;
   };
 
@@ -151,9 +135,21 @@ const Setting = () => {
                         onClick={() => handleSectionSelectorItemClick(item)}
                       />
                     ))}
-                    <span className="px-3 mt-2 opacity-70 text-sm">
-                      {t("setting.version")}: v{profile.version}
-                    </span>
+                    <div className="px-3 mt-2 opacity-70 text-sm leading-5">
+                      {t("setting.version")}: {profile.version}
+                      {profile.commit && (
+                        <span className="block font-mono break-all">
+                          Commit:{" "}
+                          {commitUrl ? (
+                            <a className="underline hover:text-foreground" href={commitUrl} target="_blank" rel="noreferrer">
+                              {profile.commit}
+                            </a>
+                          ) : (
+                            profile.commit
+                          )}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </>
               )}
