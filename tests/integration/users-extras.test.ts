@@ -241,13 +241,13 @@ describe("integration: users extras (shortcuts, PAT, webhooks, notifications)", 
     expect(hasGeneralSetting).toBe(true);
   });
 
-  it("ignores unsupported updateMask paths for user/webhook updates (golang-compatible)", async () => {
+  it("rejects invalid user updateMask paths; ignores unknown webhook mask paths (golang)", async () => {
     const app = createTestApp();
     await postFirstUser(app, { username: "um", password: "secret123", role: "USER" });
     const { accessToken } = await signIn(app, "um", "secret123");
     const base = "/api/v1/users/um";
 
-    const userPatch = await apiJson<{ displayName: string }>(app, `${base}`, {
+    const userPatch = await apiJson<{ code: number; message?: string }>(app, `${base}`, {
       method: "PATCH",
       bearer: accessToken,
       json: {
@@ -255,9 +255,9 @@ describe("integration: users extras (shortcuts, PAT, webhooks, notifications)", 
         updateMask: { paths: ["nickname"] },
       },
     });
-    expect(userPatch.status).toBe(200);
-    // Unknown mask path is ignored; no field update.
-    expect(userPatch.body.displayName).toBe("");
+    expect(userPatch.status).toBe(400);
+    expect(userPatch.body.code).toBe(GrpcCode.INVALID_ARGUMENT);
+    expect(userPatch.body.message).toMatch(/invalid update path/i);
 
     const webhookCreate = await apiJson<{ name: string }>(app, `${base}/webhooks`, {
       method: "POST",
