@@ -9,6 +9,7 @@ import {
   type StoredUserWebhook,
 } from "../../lib/user-webhooks-setting.js";
 import { GrpcCode, jsonError } from "../../lib/grpc-status.js";
+import { resolveFieldMaskPaths } from "../../lib/update-mask.js";
 import { b64urlToUtf8, utf8ToB64url } from "../../lib/b64url.js";
 import { hashPassword } from "../../services/password.js";
 import {
@@ -98,6 +99,86 @@ function parsePageArgs(
 function hasPath(paths: string[] | undefined, ...names: string[]): boolean {
   if (!paths || paths.length === 0) return false;
   return names.some((n) => paths.includes(n));
+}
+
+/** Known FieldMask path spellings -> canonical golang paths (`user_service.go` switch). */
+const USER_UPDATE_MASK_ALIASES: Record<string, string> = {
+  username: "username",
+  display_name: "display_name",
+  displayName: "display_name",
+  email: "email",
+  description: "description",
+  avatar_url: "avatar_url",
+  avatarUrl: "avatar_url",
+  password: "password",
+  role: "role",
+  state: "state",
+};
+
+function normalizeUserUpdateMaskPaths(
+  paths: string[],
+): { ok: true; paths: string[] } | { ok: false; path: string } {
+  const out: string[] = [];
+  for (const p of paths) {
+    const c = USER_UPDATE_MASK_ALIASES[p];
+    if (!c) return { ok: false, path: p };
+    if (!out.includes(c)) out.push(c);
+  }
+  return { ok: true, paths: out };
+}
+
+function inferUserUpdateMaskPaths(payload: Record<string, unknown>): string[] {
+  const out: string[] = [];
+  for (const [k, v] of Object.entries(payload)) {
+    if (v === undefined) continue;
+    const p = USER_UPDATE_MASK_ALIASES[k];
+    if (p && !out.includes(p)) out.push(p);
+  }
+  return out;
+}
+
+type UserPatchFields = {
+  username?: string;
+  displayName?: string;
+  email?: string;
+  password?: string;
+  role?: string | number;
+  state?: string | number;
+  avatarUrl?: string;
+  description?: string;
+};
+
+function normalizeUserPatchPayload(o: Record<string, unknown>): UserPatchFields {
+  const out: UserPatchFields = {};
+  if (typeof o.username === "string") out.username = o.username;
+  const disp = o.displayName ?? o.display_name;
+  if (disp !== undefined) out.displayName = typeof disp === "string" ? disp : String(disp);
+  if (o.email !== undefined) out.email = typeof o.email === "string" ? o.email : String(o.email);
+  if (o.description !== undefined) {
+    out.description = typeof o.description === "string" ? o.description : String(o.description);
+  }
+  const av = o.avatarUrl ?? o.avatar_url;
+  if (av !== undefined) out.avatarUrl = typeof av === "string" ? av : String(av);
+  if (typeof o.password === "string") out.password = o.password;
+  if (o.role !== undefined) out.role = o.role as string | number;
+  if (o.state !== undefined) out.state = o.state as string | number;
+  return out;
+}
+
+/**
+ * Connect/web sends `{ user, updateMask }`. gRPC-Gateway / OpenAPI sends the `User` JSON as the body
+ * and `updateMask` as a query param (`proto` `body: "user"`).
+ */
+function parseUpdateUserBody(raw: Record<string, unknown>): {
+  userPayload: Record<string, unknown>;
+  usedNestedUser: boolean;
+} {
+  const nested = raw.user;
+  if (nested && typeof nested === "object" && !Array.isArray(nested)) {
+    return { userPayload: nested as Record<string, unknown>, usedNestedUser: true };
+  }
+  const { updateMask: _a, update_mask: _b, user: _c, ...rest } = raw;
+  return { userPayload: rest, usedNestedUser: false };
 }
 
 function validateUserWebhookUrl(url: string): string | null {
@@ -312,37 +393,44 @@ export function createUserRoutes(deps: AppDeps) {
       return jsonError(c, GrpcCode.PERMISSION_DENIED, "permission denied");
     }
     const general = await repo.getGeneralSetting();
-    type Body = {
-      user?: {
-        username?: string;
-        displayName?: string;
-        email?: string;
-        password?: string;
-        role?: string | number;
-        state?: string | number;
-        avatarUrl?: string;
-        description?: string;
-      };
-      updateMask?: { paths?: string[] };
-    };
-    let body: Body;
+    let raw: Record<string, unknown>;
     try {
-      body = (await c.req.json()) as Body;
+      raw = (await c.req.json()) as Record<string, unknown>;
     } catch {
       return jsonError(c, GrpcCode.INVALID_ARGUMENT, "invalid json");
     }
-    const u = body.user;
-    if (!u) return jsonError(c, GrpcCode.INVALID_ARGUMENT, "user required");
-    const paths = body.updateMask?.paths ?? [];
+    const { userPayload, usedNestedUser } = parseUpdateUserBody(raw);
+    if (!usedNestedUser && Object.keys(userPayload).length === 0) {
+      return jsonError(c, GrpcCode.INVALID_ARGUMENT, "user required");
+    }
+
+    const patch = normalizeUserPatchPayload(userPayload);
+    let paths = resolveFieldMaskPaths(c, raw);
+    if (paths.length === 0) {
+      if (usedNestedUser) {
+        return jsonError(c, GrpcCode.INVALID_ARGUMENT, "update mask is empty");
+      }
+      paths = inferUserUpdateMaskPaths(userPayload);
+    }
     if (paths.length === 0) {
       return jsonError(c, GrpcCode.INVALID_ARGUMENT, "update mask is empty");
     }
+    const norm = normalizeUserUpdateMaskPaths(paths);
+    if (!norm.ok) {
+      return jsonError(
+        c,
+        GrpcCode.INVALID_ARGUMENT,
+        `invalid update path: ${norm.path}`,
+      );
+    }
+    paths = norm.paths;
+
     let newUsername: string | null = null;
     if (hasPath(paths, "username")) {
       if (general.disallowChangeUsername) {
         return jsonError(c, GrpcCode.PERMISSION_DENIED, "permission denied");
       }
-      const next = typeof u.username === "string" ? u.username.trim() : "";
+      const next = patch.username?.trim() ?? "";
       if (!next) {
         return jsonError(c, GrpcCode.INVALID_ARGUMENT, "username required");
       }
@@ -359,14 +447,14 @@ export function createUserRoutes(deps: AppDeps) {
       if (general.disallowChangeNickname) {
         return jsonError(c, GrpcCode.PERMISSION_DENIED, "permission denied");
       }
-      if (u.displayName !== undefined) fields.display_name = u.displayName;
+      if (patch.displayName !== undefined) fields.display_name = patch.displayName;
     }
     if (hasPath(paths, "email")) {
-      if (u.email !== undefined) fields.email = u.email;
+      if (patch.email !== undefined) fields.email = patch.email;
     }
     if (hasPath(paths, "avatar_url", "avatarUrl")) {
-      if (u.avatarUrl !== undefined) {
-        const avatarErr = validateUserAvatarUrl(u.avatarUrl);
+      if (patch.avatarUrl !== undefined) {
+        const avatarErr = validateUserAvatarUrl(patch.avatarUrl);
         if (avatarErr) {
           const msg =
             avatarErr === "invalid data URI format"
@@ -374,27 +462,27 @@ export function createUserRoutes(deps: AppDeps) {
               : avatarErr;
           return jsonError(c, GrpcCode.INVALID_ARGUMENT, msg);
         }
-        fields.avatar_url = u.avatarUrl;
+        fields.avatar_url = patch.avatarUrl;
       }
     }
     if (hasPath(paths, "description")) {
-      if (u.description !== undefined) fields.description = u.description;
+      if (patch.description !== undefined) fields.description = patch.description;
     }
-    if (u.password && hasPath(paths, "password")) {
-      fields.password_hash = await hashPassword(u.password);
+    if (patch.password && hasPath(paths, "password")) {
+      fields.password_hash = await hashPassword(patch.password);
     }
     if (hasPath(paths, "role")) {
       if (auth.role !== "ADMIN") {
         return jsonError(c, GrpcCode.PERMISSION_DENIED, "permission denied");
       }
-      const parsedRole = parseUserRolePatchValue(u.role);
+      const parsedRole = parseUserRolePatchValue(patch.role);
       if (!parsedRole) {
         return jsonError(c, GrpcCode.INVALID_ARGUMENT, "invalid role");
       }
       fields.role = parsedRole;
     }
     if (hasPath(paths, "state")) {
-      const parsedState = parseUserStatePatchValue(u.state);
+      const parsedState = parseUserStatePatchValue(patch.state);
       if (!parsedState) {
         return jsonError(c, GrpcCode.INVALID_ARGUMENT, "invalid state");
       }
