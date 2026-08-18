@@ -286,52 +286,6 @@ export function createMemoRoutes(deps: AppDeps) {
           visibility: "PUBLIC",
         });
 
-        r.get("/-/linkMetadata", async (c) => {
-          const url = c.req.query("url") ?? "";
-          try {
-            const metadata = await getLinkMetadata(url);
-            return c.json(metadata);
-          } catch (err) {
-            return jsonError(
-              c,
-              GrpcCode.INVALID_ARGUMENT,
-              err instanceof Error ? `failed to fetch link metadata: ${err.message}` : "failed to fetch link metadata",
-            );
-          }
-        });
-
-        r.post("/-/linkMetadata:batchGet", async (c) => {
-          type Body = { urls?: string[] };
-          let body: Body;
-          try {
-            body = (await c.req.json()) as Body;
-          } catch {
-            return jsonError(c, GrpcCode.INVALID_ARGUMENT, "invalid json");
-          }
-          const urls = Array.isArray(body.urls) ? body.urls : [];
-          if (urls.length === 0) {
-            return jsonError(c, GrpcCode.INVALID_ARGUMENT, "urls are required");
-          }
-          if (urls.length > MAX_BATCH_GET_LINK_METADATA) {
-            return jsonError(c, GrpcCode.INVALID_ARGUMENT, `too many urls (max ${MAX_BATCH_GET_LINK_METADATA})`);
-          }
-          const linkMetadata = [];
-          for (const url of urls) {
-            if (typeof url !== "string") {
-              return jsonError(c, GrpcCode.INVALID_ARGUMENT, "failed to fetch link metadata: invalid url");
-            }
-            try {
-              linkMetadata.push(await getLinkMetadata(url));
-            } catch (err) {
-              return jsonError(
-                c,
-                GrpcCode.INVALID_ARGUMENT,
-                err instanceof Error ? `failed to fetch link metadata: ${err.message}` : "failed to fetch link metadata",
-              );
-            }
-          }
-          return c.json({ linkMetadata });
-        });
       } else {
         rows = await repo.listMemosTopLevel({
           limit: pageSize,
@@ -370,6 +324,53 @@ export function createMemoRoutes(deps: AppDeps) {
       memos: await Promise.all(rows.map((m) => memoToJsonWithAttachments(m))),
       nextPageToken: next,
     });
+  });
+
+  r.get("/-/linkMetadata", async (c) => {
+    const url = c.req.query("url") ?? "";
+    try {
+      const metadata = await getLinkMetadata(url);
+      return c.json(metadata);
+    } catch (err) {
+      return jsonError(
+        c,
+        GrpcCode.INVALID_ARGUMENT,
+        err instanceof Error ? `failed to fetch link metadata: ${err.message}` : "failed to fetch link metadata",
+      );
+    }
+  });
+
+  r.post("/-/linkMetadata:batchGet", async (c) => {
+    type Body = { urls?: string[] };
+    let body: Body;
+    try {
+      body = (await c.req.json()) as Body;
+    } catch {
+      return jsonError(c, GrpcCode.INVALID_ARGUMENT, "invalid json");
+    }
+    const urls = Array.isArray(body.urls) ? body.urls : [];
+    if (urls.length === 0) {
+      return jsonError(c, GrpcCode.INVALID_ARGUMENT, "urls are required");
+    }
+    if (urls.length > MAX_BATCH_GET_LINK_METADATA) {
+      return jsonError(c, GrpcCode.INVALID_ARGUMENT, `too many urls (max ${MAX_BATCH_GET_LINK_METADATA})`);
+    }
+    const linkMetadata = [];
+    for (const url of urls) {
+      if (typeof url !== "string") {
+        return jsonError(c, GrpcCode.INVALID_ARGUMENT, "failed to fetch link metadata: invalid url");
+      }
+      try {
+        linkMetadata.push(await getLinkMetadata(url));
+      } catch (err) {
+        return jsonError(
+          c,
+          GrpcCode.INVALID_ARGUMENT,
+          err instanceof Error ? `failed to fetch link metadata: ${err.message}` : "failed to fetch link metadata",
+        );
+      }
+    }
+    return c.json({ linkMetadata });
   });
 
   r.post("/", async (c) => {
