@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { ApiVariables } from "../../types/api-variables.js";
 import type { AppDeps } from "../../types/deps.js";
+import type { AuthPrincipal } from "../../types/auth.js";
 import { createRepository } from "../../db/repository.js";
 import { GrpcCode, jsonError } from "../../lib/grpc-status.js";
 import { userToJson } from "../../lib/serializers.js";
@@ -82,6 +83,112 @@ export function createInstanceRoutes(deps: AppDeps) {
     ];
   };
 
+  async function databaseSizeBytes(): Promise<number> {
+    try {
+      const pageCount = await deps.sql.queryOne<{ n: number | bigint }>("PRAGMA page_count");
+      const pageSize = await deps.sql.queryOne<{ n: number | bigint }>("PRAGMA page_size");
+      const count = Number(pageCount?.n ?? 0);
+      const size = Number(pageSize?.n ?? 0);
+      if (!Number.isFinite(count) || !Number.isFinite(size) || count < 0 || size < 0) return -1;
+      return Math.floor(count * size);
+    } catch {
+      return -1;
+    }
+  }
+
+  function parseInstanceSettingKeyFromPath(pathname: string): string | null {
+    return pathname.split("/instance/settings/")[1]?.split("/")[0] ?? null;
+  }
+
+  async function getInstanceSettingByKey(
+    key: string,
+    auth: AuthPrincipal | null,
+  ): Promise<{
+    setting: Record<string, unknown> | null;
+    errorCode?: (typeof GrpcCode)[keyof typeof GrpcCode];
+    errorMessage?: string;
+  }> {
+    const general = await repo.getGeneralSetting();
+    if (key === "GENERAL") {
+      return { setting: {
+        name: `instance/settings/${key}`,
+        generalSetting: {
+          disallowUserRegistration: general.disallowUserRegistration,
+          disallowPasswordAuth: general.disallowPasswordAuth,
+          additionalScript: general.additionalScript,
+          additionalStyle: general.additionalStyle,
+          customProfile: general.customProfile,
+          weekStartDayOffset: general.weekStartDayOffset,
+          disallowChangeUsername: general.disallowChangeUsername,
+          disallowChangeNickname: general.disallowChangeNickname,
+        },
+      } };
+    }
+    if (key === "STORAGE") {
+      if (!auth) return { setting: null, errorCode: GrpcCode.UNAUTHENTICATED, errorMessage: "permission denied" };
+      if (auth.role !== "ADMIN") {
+        return { setting: null, errorCode: GrpcCode.PERMISSION_DENIED, errorMessage: "permission denied" };
+      }
+      const setting = parseInstanceStorageSetting(
+        await repo.getInstanceSettingRaw("STORAGE"),
+        deps.defaultAttachmentStorageType,
+      );
+      return { setting: {
+        name: `instance/settings/${key}`,
+        storageSetting: storageSettingToApiJson(setting, false),
+        supportedStorageTypes: orderSupportedStorageTypes(),
+      } };
+    }
+    if (key === "MEMO_RELATED") {
+      const memoRelatedSetting = parseMemoRelatedFromRaw(await repo.getInstanceSettingRaw("MEMO_RELATED"));
+      return { setting: {
+        name: `instance/settings/${key}`,
+        memoRelatedSetting,
+      } };
+    }
+    if (key === "TAGS") {
+      const tags = parseTagsFromRaw(await repo.getInstanceSettingRaw("TAGS"));
+      return { setting: {
+        name: `instance/settings/${key}`,
+        tagsSetting: { tags },
+      } };
+    }
+    if (key === "NOTIFICATION") {
+      if (!auth) return { setting: null, errorCode: GrpcCode.UNAUTHENTICATED, errorMessage: "permission denied" };
+      if (auth.role !== "ADMIN") {
+        return { setting: null, errorCode: GrpcCode.PERMISSION_DENIED, errorMessage: "permission denied" };
+      }
+      const notificationSetting = parseInstanceNotificationSetting(
+        await repo.getInstanceSettingRaw("NOTIFICATION"),
+      );
+      return { setting: {
+        name: `instance/settings/${key}`,
+        notificationSetting: toNotificationApiResponse(notificationSetting),
+      } };
+    }
+    if (key === "AI") {
+      if (!auth) return { setting: null, errorCode: GrpcCode.UNAUTHENTICATED, errorMessage: "permission denied" };
+      if (auth.role !== "ADMIN") {
+        return { setting: null, errorCode: GrpcCode.PERMISSION_DENIED, errorMessage: "permission denied" };
+      }
+      const aiSetting = parseAISettingFromRaw(await repo.getInstanceSettingRaw("AI"));
+      return { setting: {
+        name: `instance/settings/${key}`,
+        aiSetting: {
+          providers: aiSetting.providers.map((p) => ({
+            id: p.id,
+            title: p.title,
+            type: aiProviderTypeToNumber(p.type),
+            endpoint: p.endpoint,
+            apiKeySet: Boolean(p.apiKey),
+            apiKeyHint: p.apiKey ? maskApiKey(p.apiKey) : "",
+          })),
+        },
+      } };
+    }
+    return { setting: null };
+  }
+
   r.get("/profile", async (c) => {
     if (!deps.demo) await repo.ensureSecretKey();
     const admin = await repo.findAdmin();
@@ -95,93 +202,140 @@ export function createInstanceRoutes(deps: AppDeps) {
     });
   });
 
+  r.get("/stats", async (c) => {
+    const auth = c.get("auth");
+    if (!auth) return jsonError(c, GrpcCode.UNAUTHENTICATED, "permission denied");
+    if (auth.role !== "ADMIN") return jsonError(c, GrpcCode.PERMISSION_DENIED, "permission denied");
+    const sizeBytes = await databaseSizeBytes();
+    return c.json({
+      database: {
+        driver: "sqlite",
+        sizeBytes: String(sizeBytes),
+      },
+      localStorageBytes: String(-1),
+      generatedTime: new Date().toISOString(),
+    });
+  });
+
   r.get("/settings/*", async (c) => {
     const pathname = new URL(c.req.url).pathname;
-    const key = pathname.split("/instance/settings/")[1]?.split("/")[0];
+    const key = parseInstanceSettingKeyFromPath(pathname);
     if (!key) return jsonError(c, GrpcCode.INVALID_ARGUMENT, "invalid setting name");
-    const general = await repo.getGeneralSetting();
-    if (key === "GENERAL") {
-      return c.json({
-        name: `instance/settings/${key}`,
-        generalSetting: {
-          disallowUserRegistration: general.disallowUserRegistration,
-          disallowPasswordAuth: general.disallowPasswordAuth,
-          additionalScript: general.additionalScript,
-          additionalStyle: general.additionalStyle,
-          customProfile: general.customProfile,
-          weekStartDayOffset: general.weekStartDayOffset,
-          disallowChangeUsername: general.disallowChangeUsername,
-          disallowChangeNickname: general.disallowChangeNickname,
-        },
-      });
+    const result = await getInstanceSettingByKey(key, c.get("auth"));
+    if (result.errorCode !== undefined) {
+      return jsonError(c, result.errorCode, result.errorMessage ?? "permission denied");
     }
-    if (key === "STORAGE") {
-      const auth = c.get("auth");
-      if (!auth) return jsonError(c, GrpcCode.UNAUTHENTICATED, "permission denied");
-      if (auth.role !== "ADMIN") {
-        return jsonError(c, GrpcCode.PERMISSION_DENIED, "permission denied");
+    if (!result.setting) return jsonError(c, GrpcCode.NOT_FOUND, "setting not found");
+    return c.json(result.setting);
+  });
+
+  r.post("/settings:batchGet", async (c) => {
+    type Body = { names?: string[] };
+    let body: Body;
+    try {
+      body = (await c.req.json()) as Body;
+    } catch {
+      return jsonError(c, GrpcCode.INVALID_ARGUMENT, "invalid json");
+    }
+    const names = Array.isArray(body.names) ? body.names : [];
+    if (names.length === 0) {
+      return jsonError(c, GrpcCode.INVALID_ARGUMENT, "names are required");
+    }
+    const settings: Record<string, unknown>[] = [];
+    for (const name of names) {
+      const key = typeof name === "string" && name.startsWith("instance/settings/")
+        ? name.slice("instance/settings/".length)
+        : "";
+      if (!key) return jsonError(c, GrpcCode.INVALID_ARGUMENT, `invalid setting name: ${name}`);
+      const result = await getInstanceSettingByKey(key, c.get("auth"));
+      if (result.errorCode !== undefined) {
+        return jsonError(c, result.errorCode, result.errorMessage ?? "permission denied");
       }
-      const setting = parseInstanceStorageSetting(
-        await repo.getInstanceSettingRaw("STORAGE"),
-        deps.defaultAttachmentStorageType,
-      );
-      return c.json({
-        name: `instance/settings/${key}`,
-        storageSetting: storageSettingToApiJson(setting, false),
-        supportedStorageTypes: orderSupportedStorageTypes(),
-      });
+      if (!result.setting) return jsonError(c, GrpcCode.NOT_FOUND, "setting not found");
+      settings.push(result.setting);
     }
-    if (key === "MEMO_RELATED") {
-      const memoRelatedSetting = parseMemoRelatedFromRaw(await repo.getInstanceSettingRaw("MEMO_RELATED"));
-      return c.json({
-        name: `instance/settings/${key}`,
-        memoRelatedSetting,
-      });
+    return c.json({ settings });
+  });
+
+  r.post("/settings/notification:testEmail", async (c) => {
+    const auth = c.get("auth");
+    if (!auth) return jsonError(c, GrpcCode.UNAUTHENTICATED, "permission denied");
+    if (auth.role !== "ADMIN") return jsonError(c, GrpcCode.PERMISSION_DENIED, "permission denied");
+    if (!deps.sendNotificationEmail) {
+      return jsonError(c, GrpcCode.UNIMPLEMENTED, "notification email testing is not enabled");
     }
-    if (key === "TAGS") {
-      const tags = parseTagsFromRaw(await repo.getInstanceSettingRaw("TAGS"));
-      return c.json({
-        name: `instance/settings/${key}`,
-        tagsSetting: { tags },
-      });
+
+    type Body = {
+      email?: {
+        enabled?: boolean;
+        smtpHost?: string;
+        smtpPort?: number;
+        smtpUsername?: string;
+        smtpPassword?: string;
+        fromEmail?: string;
+        fromName?: string;
+        replyTo?: string;
+        useTls?: boolean;
+        useSsl?: boolean;
+      };
+      recipientEmail?: string;
+    };
+    let body: Body;
+    try {
+      body = (await c.req.json()) as Body;
+    } catch {
+      return jsonError(c, GrpcCode.INVALID_ARGUMENT, "invalid json");
     }
-    if (key === "NOTIFICATION") {
-      const auth = c.get("auth");
-      if (!auth) return jsonError(c, GrpcCode.UNAUTHENTICATED, "permission denied");
-      if (auth.role !== "ADMIN") {
-        return jsonError(c, GrpcCode.PERMISSION_DENIED, "permission denied");
-      }
-      const notificationSetting = parseInstanceNotificationSetting(
-        await repo.getInstanceSettingRaw("NOTIFICATION"),
-      );
-      return c.json({
-        name: `instance/settings/${key}`,
-        notificationSetting: toNotificationApiResponse(notificationSetting),
-      });
+
+    const stored = parseInstanceNotificationSetting(await repo.getInstanceSettingRaw("NOTIFICATION")).email;
+    const incoming = body.email ?? {};
+    const email = {
+      enabled: typeof incoming.enabled === "boolean" ? incoming.enabled : stored.enabled,
+      smtpHost: typeof incoming.smtpHost === "string" ? incoming.smtpHost : stored.smtpHost,
+      smtpPort: typeof incoming.smtpPort === "number" ? incoming.smtpPort : stored.smtpPort,
+      smtpUsername: typeof incoming.smtpUsername === "string" ? incoming.smtpUsername : stored.smtpUsername,
+      smtpPassword:
+        typeof incoming.smtpPassword === "string"
+          ? (incoming.smtpPassword === "" ? stored.smtpPassword : incoming.smtpPassword)
+          : stored.smtpPassword,
+      fromEmail: typeof incoming.fromEmail === "string" ? incoming.fromEmail : stored.fromEmail,
+      fromName: typeof incoming.fromName === "string" ? incoming.fromName : stored.fromName,
+      replyTo: typeof incoming.replyTo === "string" ? incoming.replyTo : stored.replyTo,
+      useTls: typeof incoming.useTls === "boolean" ? incoming.useTls : stored.useTls,
+      useSsl: typeof incoming.useSsl === "boolean" ? incoming.useSsl : stored.useSsl,
+    };
+
+    const recipientEmail = typeof body.recipientEmail === "string" && body.recipientEmail.trim() !== ""
+      ? body.recipientEmail.trim()
+      : (await repo.getUser(auth.username))?.email ?? "";
+    if (!recipientEmail) {
+      return jsonError(c, GrpcCode.FAILED_PRECONDITION, "recipient email is required");
     }
-    if (key === "AI") {
-      const auth = c.get("auth");
-      if (!auth) return jsonError(c, GrpcCode.UNAUTHENTICATED, "permission denied");
-      if (auth.role !== "ADMIN") {
-        return jsonError(c, GrpcCode.PERMISSION_DENIED, "permission denied");
-      }
-      const aiSetting = parseAISettingFromRaw(await repo.getInstanceSettingRaw("AI"));
-      return c.json({
-        name: `instance/settings/${key}`,
-        aiSetting: {
-          providers: aiSetting.providers.map((p) => ({
-            id: p.id,
-            title: p.title,
-            type: aiProviderTypeToNumber(p.type),
-            endpoint: p.endpoint,
-            // apiKey is write-only — never returned
-            apiKeySet: Boolean(p.apiKey),
-            apiKeyHint: p.apiKey ? maskApiKey(p.apiKey) : "",
-          })),
-        },
-      });
+    if (!email.smtpHost.trim() || !Number.isFinite(email.smtpPort) || email.smtpPort <= 0) {
+      return jsonError(c, GrpcCode.FAILED_PRECONDITION, "smtp host and port are required");
     }
-    return jsonError(c, GrpcCode.NOT_FOUND, "setting not found");
+    if (!email.fromEmail.trim()) {
+      return jsonError(c, GrpcCode.FAILED_PRECONDITION, "fromEmail is required");
+    }
+    try {
+      await deps.sendNotificationEmail({
+        smtpHost: email.smtpHost,
+        smtpPort: email.smtpPort,
+        smtpUsername: email.smtpUsername,
+        smtpPassword: email.smtpPassword,
+        useTls: email.useTls,
+        useSsl: email.useSsl,
+        fromEmail: email.fromEmail,
+        fromName: email.fromName,
+        replyTo: email.replyTo,
+        to: recipientEmail,
+        subject: "Test email from memos",
+        text: "This is a test email from memos.",
+      });
+    } catch {
+      return jsonError(c, GrpcCode.INTERNAL, "failed to send test email");
+    }
+    return c.json({});
   });
 
   r.patch("/settings/*", async (c) => {
@@ -190,7 +344,7 @@ export function createInstanceRoutes(deps: AppDeps) {
       return jsonError(c, GrpcCode.PERMISSION_DENIED, "admin only");
     }
     const pathname = new URL(c.req.url).pathname;
-    const key = pathname.split("/instance/settings/")[1]?.split("/")[0];
+    const key = parseInstanceSettingKeyFromPath(pathname);
     if (!key) return jsonError(c, GrpcCode.INVALID_ARGUMENT, "invalid setting name");
     if (!["GENERAL", "MEMO_RELATED", "TAGS", "STORAGE", "NOTIFICATION", "AI"].includes(key)) {
       return jsonError(c, GrpcCode.UNIMPLEMENTED, "this setting cannot be updated via API yet");

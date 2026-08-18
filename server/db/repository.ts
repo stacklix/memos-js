@@ -1583,10 +1583,20 @@ export function createRepository(sql: SqlAdapter) {
       return parseWebhooksFromUserSettingValue(raw);
     },
 
-    async createWebhook(username: string, url: string, displayName?: string): Promise<string> {
+    async createWebhook(
+      username: string,
+      url: string,
+      displayName?: string,
+      signingSecret?: string,
+    ): Promise<string> {
       const id = newUserWebhookId();
       const items = parseWebhooksFromUserSettingValue(await this.getUserSetting(username, "WEBHOOKS"));
-      items.push({ id, title: displayName?.trim() ?? "", url });
+      items.push({
+        id,
+        title: displayName?.trim() ?? "",
+        url,
+        ...(signingSecret ? { signingSecret } : {}),
+      });
       await this.upsertUserSetting(username, "WEBHOOKS", serializeWebhooksUserSetting(items));
       return id;
     },
@@ -1594,7 +1604,7 @@ export function createRepository(sql: SqlAdapter) {
     async updateWebhook(
       username: string,
       webhookId: string,
-      patch: { url?: string; displayName?: string },
+      patch: { url?: string; displayName?: string; signingSecret?: string },
       paths: Set<string>,
     ): Promise<boolean> {
       const items = parseWebhooksFromUserSettingValue(await this.getUserSetting(username, "WEBHOOKS"));
@@ -1609,6 +1619,9 @@ export function createRepository(sql: SqlAdapter) {
         if (patch.displayName !== undefined) {
           next.title = patch.displayName;
         }
+        if (patch.signingSecret !== undefined) {
+          next.signingSecret = patch.signingSecret;
+        }
       } else {
         for (const p of paths) {
           if (p === "url" && patch.url !== undefined && patch.url.trim() !== "") {
@@ -1619,6 +1632,9 @@ export function createRepository(sql: SqlAdapter) {
             patch.displayName !== undefined
           ) {
             next.title = patch.displayName;
+          }
+          if ((p === "signing_secret" || p === "signingSecret") && patch.signingSecret !== undefined) {
+            next.signingSecret = patch.signingSecret;
           }
         }
       }

@@ -1,6 +1,6 @@
 /** golang `user_setting` key `WEBHOOKS`: protojson of `WebhooksUserSetting` (`{ "webhooks": [{ "id", "title", "url" }] }`). */
 
-export type StoredUserWebhook = { id: string; title: string; url: string };
+export type StoredUserWebhook = { id: string; title: string; url: string; signingSecret?: string };
 
 export function newUserWebhookId(): string {
   const b = new Uint8Array(8);
@@ -23,7 +23,8 @@ function normalizeWebhook(x: unknown): StoredUserWebhook | null {
       : typeof (x as { displayName?: unknown }).displayName === "string"
         ? String((x as { displayName: string }).displayName)
         : "";
-  return { id, title, url };
+  const signingSecret = typeof x.signingSecret === "string" ? x.signingSecret : "";
+  return { id, title, url, ...(signingSecret ? { signingSecret } : {}) };
 }
 
 /**

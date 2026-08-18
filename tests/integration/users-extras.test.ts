@@ -97,6 +97,14 @@ describe("integration: users extras (shortcuts, PAT, webhooks, notifications)", 
     expect(list.status).toBe(200);
     expect(list.body.webhooks.some((w) => w.url === "https://example.com/hook")).toBe(true);
 
+    const reveal = await apiJson<{ signingSecret?: string }>(
+      app,
+      `${base}/webhooks/${encodeURIComponent(wid)}:getSigningSecret`,
+      { bearer: accessToken },
+    );
+    expect(reveal.status).toBe(200);
+    expect((reveal.body.signingSecret ?? "").startsWith("whsec_")).toBe(true);
+
     const del = await apiJson(app, `${base}/webhooks/${encodeURIComponent(wid)}`, {
       method: "DELETE",
       bearer: accessToken,
