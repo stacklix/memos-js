@@ -85,10 +85,10 @@ export function createInstanceRoutes(deps: AppDeps) {
 
   async function databaseSizeBytes(): Promise<number> {
     try {
-      const pageCount = await deps.sql.queryOne<{ n: number | bigint }>("PRAGMA page_count");
-      const pageSize = await deps.sql.queryOne<{ n: number | bigint }>("PRAGMA page_size");
-      const count = Number(pageCount?.n ?? 0);
-      const size = Number(pageSize?.n ?? 0);
+      const pageCount = await deps.sql.queryOne<{ page_count: number | bigint }>("PRAGMA page_count");
+      const pageSize = await deps.sql.queryOne<{ page_size: number | bigint }>("PRAGMA page_size");
+      const count = Number(pageCount?.page_count ?? 0);
+      const size = Number(pageSize?.page_size ?? 0);
       if (!Number.isFinite(count) || !Number.isFinite(size) || count < 0 || size < 0) return -1;
       return Math.floor(count * size);
     } catch {

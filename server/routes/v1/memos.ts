@@ -53,7 +53,7 @@ function parsePotentialIpv4(hostname: string): number[] | null {
 }
 
 function isDisallowedLinkMetadataHost(hostname: string): boolean {
-  const lower = hostname.toLowerCase();
+  const lower = hostname.toLowerCase().replace(/^\[|\]$/g, "");
   if (lower === "localhost" || lower.endsWith(".localhost")) return true;
   const ipv4 = parsePotentialIpv4(lower);
   if (ipv4) {
