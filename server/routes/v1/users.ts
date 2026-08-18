@@ -194,6 +194,31 @@ function validateUserWebhookUrl(url: string): string | null {
   return t;
 }
 
+function generateWebhookSigningSecret(): string {
+  const buf = new Uint8Array(32);
+  crypto.getRandomValues(buf);
+  let binary = "";
+  for (const b of buf) binary += String.fromCharCode(b);
+  return `whsec_${btoa(binary)}`;
+}
+
+function validateWebhookSigningSecret(secret: string): string | null {
+  const trimmed = secret.trim();
+  if (!trimmed) return null;
+  for (const ch of trimmed) {
+    const code = ch.charCodeAt(0);
+    if (code < 0x20 || code > 0x7e) return null;
+  }
+  if (trimmed.startsWith("whsec_")) {
+    try {
+      atob(trimmed.slice("whsec_".length));
+    } catch {
+      return null;
+    }
+  }
+  return trimmed;
+}
+
 function userNotificationToJson(username: string, n: DbUserNotificationRow) {
   const status =
     n.status === "UNREAD"
@@ -222,6 +247,7 @@ function storedWebhooksToApi(username: string, list: StoredUserWebhook[]) {
     name: `users/${username}/webhooks/${w.id}`,
     url: w.url,
     displayName: w.title,
+    signingSecretSet: Boolean(w.signingSecret),
   }));
 }
 
@@ -821,16 +847,25 @@ export function createUserRoutes(deps: AppDeps) {
     if (auth.username !== username && auth.role !== "ADMIN") {
       return jsonError(c, GrpcCode.PERMISSION_DENIED, "permission denied");
     }
-    type Body = { webhook?: { url?: string; displayName?: string } };
+    type Body = { webhook?: { url?: string; displayName?: string; signingSecret?: string } };
     const body = (await c.req.json()) as Body;
     const url = validateUserWebhookUrl(body.webhook?.url ?? "");
     if (!url) return jsonError(c, GrpcCode.INVALID_ARGUMENT, "url required");
-    const id = await repo.createWebhook(username, url, body.webhook?.displayName);
+    const rawSecret = body.webhook?.signingSecret;
+    const signingSecret =
+      typeof rawSecret === "string" && rawSecret.trim() !== ""
+        ? validateWebhookSigningSecret(rawSecret)
+        : generateWebhookSigningSecret();
+    if (!signingSecret) {
+      return jsonError(c, GrpcCode.INVALID_ARGUMENT, "invalid signing secret");
+    }
+    const id = await repo.createWebhook(username, url, body.webhook?.displayName, signingSecret);
     const title = body.webhook?.displayName?.trim() ?? "";
     return c.json({
       name: `users/${username}/webhooks/${id}`,
       url,
       displayName: title,
+      signingSecretSet: true,
     });
   });
 
@@ -845,7 +880,7 @@ export function createUserRoutes(deps: AppDeps) {
       return jsonError(c, GrpcCode.PERMISSION_DENIED, "permission denied");
     }
     type Body = {
-      webhook?: { url?: string; displayName?: string };
+      webhook?: { url?: string; displayName?: string; signingSecret?: string };
       updateMask?: { paths?: string[] };
     };
     const body = (await c.req.json()) as Body;
@@ -856,11 +891,20 @@ export function createUserRoutes(deps: AppDeps) {
       if (!v) return jsonError(c, GrpcCode.INVALID_ARGUMENT, "invalid url");
       url = v;
     }
+    let signingSecret = body.webhook?.signingSecret;
+    if (
+      signingSecret !== undefined &&
+      (paths.size === 0 || paths.has("signing_secret") || paths.has("signingSecret"))
+    ) {
+      const valid = validateWebhookSigningSecret(signingSecret);
+      if (!valid) return jsonError(c, GrpcCode.INVALID_ARGUMENT, "invalid signing secret");
+      signingSecret = valid;
+    }
     const whId = c.req.param("whId");
     const ok = await repo.updateWebhook(
       username,
       whId,
-      { url, displayName: body.webhook?.displayName },
+      { url, displayName: body.webhook?.displayName, signingSecret },
       paths,
     );
     if (!ok) return jsonError(c, GrpcCode.NOT_FOUND, "not found");
@@ -871,7 +915,30 @@ export function createUserRoutes(deps: AppDeps) {
       name: `users/${username}/webhooks/${w.id}`,
       url: w.url,
       displayName: w.title,
+      signingSecretSet: Boolean(w.signingSecret),
     });
+  });
+
+  forUser.get("/webhooks/:whSegment", async (c) => {
+    const auth = c.get("auth");
+    if (!auth) return jsonError(c, GrpcCode.UNAUTHENTICATED, "permission denied");
+    const username = c.req.param("username")!;
+    if (username.includes(":")) {
+      return jsonError(c, GrpcCode.INVALID_ARGUMENT, "invalid user resource");
+    }
+    if (auth.username !== username && auth.role !== "ADMIN") {
+      return jsonError(c, GrpcCode.PERMISSION_DENIED, "permission denied");
+    }
+    const raw = c.req.param("whSegment");
+    if (!raw.endsWith(":getSigningSecret")) {
+      return jsonError(c, GrpcCode.NOT_FOUND, "not found");
+    }
+    const whId = raw.slice(0, -":getSigningSecret".length);
+    if (!whId) return jsonError(c, GrpcCode.INVALID_ARGUMENT, "invalid webhook resource");
+    const hooks = await repo.listWebhooks(username);
+    const hook = hooks.find((h) => h.id === whId);
+    if (!hook) return jsonError(c, GrpcCode.NOT_FOUND, "webhook not found");
+    return c.json({ signingSecret: hook.signingSecret ?? "" });
   });
 
   forUser.delete("/webhooks/:whId", async (c) => {

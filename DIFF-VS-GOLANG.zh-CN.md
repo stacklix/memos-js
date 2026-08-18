@@ -1,8 +1,8 @@
 # TypeScript 分支 vs `golang` 分支：当前差异
 
-> 更新时间：2026-05-10。
+> 更新时间：2026-08-18。
 >
-> 对照基线：`chore/golang-v0.28.0-alignment@e8d0ff21` vs `golang@9bf648ac`（v0.28.0）。
+> 对照基线：`master` vs `golang@2036c1ff`（v0.30.0）。
 >
 > `golang` 分支是 API/proto 的权威参考。本文件只记录已知实现差异和 TypeScript/Worker 的设计差异，不代表可以继续引入新的 API 分叉。
 
@@ -21,6 +21,7 @@
 | 领域 | TypeScript 分支 | `golang` 分支 |
 | --- | --- | --- |
 | 表结构来源 | 递增 `migrations/NNNN_*.sql` | `store/migration/sqlite/*` 加 `LATEST.sql` |
+| v0.30 数据迁移 | `0003_user_tag_setting.sql` 回填 `system_setting.TAGS` 到 `user_setting(TAGS)` | `store/migration/sqlite/0.30/00__user_tag_setting.sql` |
 | 版本记录 | `schema_migrations` 表 | 无等价表 |
 | 本地运行库 | SQLite 文件，默认 `data/memos.sqlite` | SQLite/PostgreSQL/MySQL |
 | Worker 数据库 | Cloudflare D1，由 Wrangler 迁移 | 不适用 |
@@ -32,6 +33,7 @@
 | --- | --- | --- |
 | 传输实现 | 仅 REST：`/api/v1` 下的手写 Hono 路由 | `/api/v1` 下的 gRPC-Gateway REST，另有 Connect handlers |
 | 存储设置响应 | 额外返回 `supportedStorageTypes`，可包含 `R2` | 固定 proto 枚举，无 R2 |
+| 分享 Memo URL | 同时支持 `/api/v1/shares/{shareToken}/memo` 与历史兼容路径 `/api/v1/shares/{shareToken}` | `/api/v1/shares/{shareToken}/memo` |
 | Memo / 附件过滤 | 实现支持范围内的 CEL-like 子集 | Go/proto 完整行为 |
 | SSE 路由 | 仅 Node 开启 SSE 时挂载 | Go 服务端可用 |
 

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { apiJson, apiRequest } from "../helpers/http.js";
 import { createTestApp } from "../helpers/test-app.js";
 import {
@@ -421,6 +421,55 @@ describe("integration: memos", () => {
     );
     expect(publicGet.status).toBe(200);
     expect(publicGet.body.content).toBe("secret shared");
+
+    const publicGetV030 = await apiJson<{ content: string }>(
+      app,
+      `/api/v1/shares/${encodeURIComponent(token)}/memo`,
+    );
+    expect(publicGetV030.status).toBe(200);
+    expect(publicGetV030.body.content).toBe("secret shared");
+  });
+
+  it("GET/POST linkMetadata endpoints follow golang action paths", async () => {
+    const app = createTestApp();
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      return new Response(
+        "<html><head><title>Demo</title><meta property='og:description' content='desc'><meta property='og:image' content='https://cdn.example.com/a.png'></head><body></body></html>",
+        {
+          status: 200,
+          headers: { "Content-Type": "text/html; charset=utf-8" },
+        },
+      );
+    });
+    try {
+      const single = await apiJson<{
+        url?: string;
+        title?: string;
+        description?: string;
+        image?: string;
+      }>(app, "/api/v1/memos/-/linkMetadata?url=https%3A%2F%2Fexample.com");
+      expect(single.status).toBe(200);
+      expect(single.body.url).toBe("https://example.com");
+      expect(single.body.title).toBe("Demo");
+
+      const batch = await apiJson<{ linkMetadata?: Array<{ url?: string; description?: string }> }>(
+        app,
+        "/api/v1/memos/-/linkMetadata:batchGet",
+        {
+          method: "POST",
+          json: {
+            urls: ["https://example.com/a", "https://example.com/b"],
+          },
+        },
+      );
+      expect(batch.status).toBe(200);
+      expect(batch.body.linkMetadata?.map((m) => m.url)).toEqual([
+        "https://example.com/a",
+        "https://example.com/b",
+      ]);
+    } finally {
+      fetchMock.mockRestore();
+    }
   });
 
   it("visibility: anonymous list only PUBLIC; owner sees PRIVATE", async () => {

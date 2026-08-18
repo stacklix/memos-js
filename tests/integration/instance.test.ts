@@ -11,6 +11,73 @@ describe("integration: instance", () => {
     expect(res.body.commit).toBe("");
   });
 
+  it("POST instance/settings:batchGet returns settings in request order", async () => {
+    const app = createTestApp();
+    const res = await apiJson<{ settings?: Array<{ name?: string }> }>(app, "/api/v1/instance/settings:batchGet", {
+      method: "POST",
+      json: {
+        names: ["instance/settings/TAGS", "instance/settings/GENERAL"],
+      },
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.settings?.map((s) => s.name)).toEqual([
+      "instance/settings/TAGS",
+      "instance/settings/GENERAL",
+    ]);
+  });
+
+  it("GET instance/stats requires admin and returns stats payload", async () => {
+    const app = createTestApp();
+    const unauth = await apiJson(app, "/api/v1/instance/stats");
+    expect(unauth.status).toBe(401);
+
+    const { accessToken } = await seedAdmin(app, { username: "istat", password: "secret123" });
+    const authed = await apiJson<{
+      database?: { driver?: string; sizeBytes?: string };
+      localStorageBytes?: string;
+      generatedTime?: string;
+    }>(app, "/api/v1/instance/stats", { bearer: accessToken });
+    expect(authed.status).toBe(200);
+    expect(authed.body.database?.driver).toBe("sqlite");
+    expect(typeof authed.body.database?.sizeBytes).toBe("string");
+    expect(typeof authed.body.localStorageBytes).toBe("string");
+    expect(typeof authed.body.generatedTime).toBe("string");
+  });
+
+  it("POST instance/settings/notification:testEmail sends via injected sender", async () => {
+    const sent: Array<{ to: string; subject: string }> = [];
+    const app = createTestApp({
+      sendNotificationEmail: async (args) => {
+        sent.push({ to: args.to, subject: args.subject });
+      },
+    });
+    const { accessToken } = await seedAdmin(app, { username: "itestmail", password: "secret123" });
+    await apiJson(app, "/api/v1/instance/settings/NOTIFICATION", {
+      method: "PATCH",
+      bearer: accessToken,
+      json: {
+        notificationSetting: {
+          email: {
+            enabled: true,
+            smtpHost: "smtp.example.com",
+            smtpPort: 587,
+            fromEmail: "bot@example.com",
+          },
+        },
+      },
+    });
+
+    const testSend = await apiJson(app, "/api/v1/instance/settings/notification:testEmail", {
+      method: "POST",
+      bearer: accessToken,
+      json: {
+        recipientEmail: "recv@example.com",
+      },
+    });
+    expect(testSend.status).toBe(200);
+    expect(sent).toEqual([{ to: "recv@example.com", subject: "Test email from memos" }]);
+  });
+
   it("PATCH instance/settings/TAGS then GET returns persisted tags", async () => {
     const app = createTestApp();
     const { accessToken } = await seedAdmin(app, { username: "adm", password: "secret123" });

@@ -24,6 +24,9 @@ import { parseInstanceNotificationSetting } from "../../lib/instance-notificatio
 import { dispatchMemoCommentWebhooks } from "../../services/user-webhook-dispatch.js";
 import { sseBus } from "../../lib/sse-bus.js";
 
+const MAX_BATCH_GET_LINK_METADATA = 10;
+const MAX_LINK_METADATA_HTML_BYTES = 512 * 1024;
+
 function memoIdFromName(name: string): string | null {
   const p = name.startsWith("memos/") ? name.slice("memos/".length) : name;
   return p.length > 0 ? p : null;
@@ -39,6 +42,113 @@ function canViewMemo(
   if (!auth) return false;
   if (m.visibility === "PROTECTED") return true;
   return m.creator_username === auth.username;
+}
+
+function parsePotentialIpv4(hostname: string): number[] | null {
+  const parts = hostname.split(".");
+  if (parts.length !== 4) return null;
+  const nums = parts.map((p) => Number(p));
+  if (nums.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return null;
+  return nums;
+}
+
+function isDisallowedLinkMetadataHost(hostname: string): boolean {
+  const lower = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (lower === "localhost" || lower.endsWith(".localhost")) return true;
+  const ipv4 = parsePotentialIpv4(lower);
+  if (ipv4) {
+    const [a, b] = ipv4;
+    if (a === 10 || a === 127 || a === 0) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+  }
+  if (lower.includes(":")) {
+    if (lower === "::1" || lower === "::") return true;
+    if (lower.startsWith("fc") || lower.startsWith("fd")) return true;
+    if (lower.startsWith("fe8") || lower.startsWith("fe9") || lower.startsWith("fea") || lower.startsWith("feb")) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function decodeHtmlAttrValue(raw: string): string {
+  if ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'"))) {
+    return raw.slice(1, -1);
+  }
+  return raw;
+}
+
+function extractMetaProperties(html: string): { title: string; description: string; image: string } {
+  const out = { title: "", description: "", image: "" };
+  const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  if (titleMatch) out.title = titleMatch[1]?.trim() ?? "";
+
+  const metaTags = html.match(/<meta\b[^>]*>/gi) ?? [];
+  for (const tag of metaTags) {
+    const attrs = new Map<string, string>();
+    const attrRegex = /([a-zA-Z:-]+)\s*=\s*("[^"]*"|'[^']*'|[^\s"'>]+)/g;
+    for (const m of tag.matchAll(attrRegex)) {
+      const name = (m[1] ?? "").toLowerCase();
+      const value = decodeHtmlAttrValue(m[2] ?? "");
+      attrs.set(name, value);
+    }
+    const key = (attrs.get("property") ?? attrs.get("name") ?? "").toLowerCase();
+    const content = attrs.get("content")?.trim() ?? "";
+    if (!content) continue;
+    if (key === "og:title") out.title = content;
+    else if (key === "og:description") out.description = content;
+    else if (key === "og:image") out.image = content;
+    else if (key === "description" && !out.description) out.description = content;
+  }
+  return out;
+}
+
+async function getLinkMetadata(urlRaw: string): Promise<{
+  url: string;
+  title: string;
+  description: string;
+  image: string;
+}> {
+  const url = urlRaw.trim();
+  if (!url) throw new Error("url is required");
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error("invalid url");
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error("only http/https urls are allowed");
+  }
+  if (!parsed.hostname || isDisallowedLinkMetadataHost(parsed.hostname)) {
+    throw new Error("disallowed url host");
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
+  try {
+    const res = await fetch(parsed.toString(), {
+      redirect: "follow",
+      signal: controller.signal,
+    });
+    if (!res.ok) throw new Error(`failed to fetch metadata: ${res.status}`);
+    const contentType = res.headers.get("content-type")?.toLowerCase() ?? "";
+    if (!contentType.includes("text/html")) {
+      throw new Error("not a html page");
+    }
+    const html = (await res.text()).slice(0, MAX_LINK_METADATA_HTML_BYTES);
+    const meta = extractMetaProperties(html);
+    return {
+      url: urlRaw,
+      title: meta.title,
+      description: meta.description,
+      image: meta.image,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export function createMemoRoutes(deps: AppDeps) {
@@ -175,6 +285,7 @@ export function createMemoRoutes(deps: AppDeps) {
           state,
           visibility: "PUBLIC",
         });
+
       } else {
         rows = await repo.listMemosTopLevel({
           limit: pageSize,
@@ -213,6 +324,53 @@ export function createMemoRoutes(deps: AppDeps) {
       memos: await Promise.all(rows.map((m) => memoToJsonWithAttachments(m))),
       nextPageToken: next,
     });
+  });
+
+  r.get("/-/linkMetadata", async (c) => {
+    const url = c.req.query("url") ?? "";
+    try {
+      const metadata = await getLinkMetadata(url);
+      return c.json(metadata);
+    } catch (err) {
+      return jsonError(
+        c,
+        GrpcCode.INVALID_ARGUMENT,
+        err instanceof Error ? `failed to fetch link metadata: ${err.message}` : "failed to fetch link metadata",
+      );
+    }
+  });
+
+  r.post("/-/linkMetadata:batchGet", async (c) => {
+    type Body = { urls?: string[] };
+    let body: Body;
+    try {
+      body = (await c.req.json()) as Body;
+    } catch {
+      return jsonError(c, GrpcCode.INVALID_ARGUMENT, "invalid json");
+    }
+    const urls = Array.isArray(body.urls) ? body.urls : [];
+    if (urls.length === 0) {
+      return jsonError(c, GrpcCode.INVALID_ARGUMENT, "urls are required");
+    }
+    if (urls.length > MAX_BATCH_GET_LINK_METADATA) {
+      return jsonError(c, GrpcCode.INVALID_ARGUMENT, `too many urls (max ${MAX_BATCH_GET_LINK_METADATA})`);
+    }
+    const linkMetadata = [];
+    for (const url of urls) {
+      if (typeof url !== "string") {
+        return jsonError(c, GrpcCode.INVALID_ARGUMENT, "failed to fetch link metadata: invalid url");
+      }
+      try {
+        linkMetadata.push(await getLinkMetadata(url));
+      } catch (err) {
+        return jsonError(
+          c,
+          GrpcCode.INVALID_ARGUMENT,
+          err instanceof Error ? `failed to fetch link metadata: ${err.message}` : "failed to fetch link metadata",
+        );
+      }
+    }
+    return c.json({ linkMetadata });
   });
 
   r.post("/", async (c) => {
@@ -752,6 +910,14 @@ export function createShareByTokenRoute(deps: AppDeps) {
     });
     return memoToJson(m, { attachments: attachments.map((a) => attachmentToJson(a)) });
   }
+  r.get("/:shareToken/memo", async (c) => {
+    const memoId = await repo.getMemoIdByShareToken(c.req.param("shareToken"));
+    if (!memoId) return jsonError(c, GrpcCode.NOT_FOUND, "share not found");
+    const row = await repo.getMemoById(memoId);
+    if (!row) return jsonError(c, GrpcCode.NOT_FOUND, "memo not found");
+    return c.json(await memoToJsonWithAttachments(row));
+  });
+  // Backward compatibility for historical TypeScript path.
   r.get("/:shareId", async (c) => {
     const memoId = await repo.getMemoIdByShareToken(c.req.param("shareId"));
     if (!memoId) return jsonError(c, GrpcCode.NOT_FOUND, "share not found");

@@ -1,8 +1,8 @@
 # TypeScript Branch vs `golang` Branch: Current Differences
 
-> Updated: 2026-05-10.
+> Updated: 2026-08-18.
 >
-> Baseline: `chore/golang-v0.28.0-alignment@e8d0ff21` vs `golang@9bf648ac` (v0.28.0).
+> Baseline: `master` vs `golang@2036c1ff` (v0.30.0).
 >
 > The `golang` branch is the API/proto reference. This document tracks known implementation gaps and intentional TypeScript/Worker differences; it is not permission to introduce new API drift.
 
@@ -21,6 +21,7 @@
 | Area | TypeScript branch | `golang` branch |
 | --- | --- | --- |
 | Schema source | Incremental `migrations/NNNN_*.sql` | `store/migration/sqlite/*` plus `LATEST.sql` |
+| v0.30 data migration | `0003_user_tag_setting.sql` backfills `system_setting.TAGS` into `user_setting(TAGS)` | `store/migration/sqlite/0.30/00__user_tag_setting.sql` |
 | Version tracking | `schema_migrations` table | No equivalent table |
 | Local runtime DB | SQLite file, default `data/memos.sqlite` | SQLite/PostgreSQL/MySQL support |
 | Worker DB | Cloudflare D1, migrated by Wrangler | Not applicable |
@@ -32,6 +33,7 @@
 | --- | --- | --- |
 | Transport implementation | REST only: hand-written Hono routes under `/api/v1` | REST via gRPC-Gateway under `/api/v1`, plus Connect handlers |
 | Storage setting response | Adds `supportedStorageTypes`, can include `R2` | Fixed proto enum without R2 |
+| Shared memo URL | Supports both `/api/v1/shares/{shareToken}/memo` and legacy `/api/v1/shares/{shareToken}` | `/api/v1/shares/{shareToken}/memo` |
 | Memo / attachment filters | Implements a supported CEL-like subset | Full Go/proto behavior |
 | SSE route | Mounted only when Node enables SSE | Go server route is available |
 

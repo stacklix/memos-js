@@ -11,6 +11,7 @@ export function isPublicApiRoute(method: string, pathname: string): boolean {
 
   if (pathname === "/api/v1/instance/profile" && m === "GET") return true;
   if (m === "GET" && pathname.startsWith("/api/v1/instance/settings/")) return true;
+  if (pathname === "/api/v1/instance/settings:batchGet" && m === "POST") return true;
 
   if (pathname === "/api/v1/users" && m === "POST") return true;
   if (pathname === "/api/v1/users:batchGet" && m === "POST") return true;
@@ -27,10 +28,13 @@ export function isPublicApiRoute(method: string, pathname: string): boolean {
   if (pathname === "/api/v1/identity-providers" && m === "GET") return true;
 
   if (pathname === "/api/v1/memos" && m === "GET") return true;
+  if (pathname === "/api/v1/memos/-/linkMetadata" && m === "GET") return true;
+  if (pathname === "/api/v1/memos/-/linkMetadata:batchGet" && m === "POST") return true;
   if (m === "GET" && /^\/api\/v1\/memos\/[^/]+$/.test(pathname)) return true;
   if (m === "GET" && /^\/api\/v1\/memos\/[^/]+\/comments$/.test(pathname))
     return true;
   if (m === "GET" && /^\/api\/v1\/shares\/[^/]+$/.test(pathname)) return true;
+  if (m === "GET" && /^\/api\/v1\/shares\/[^/]+\/memo$/.test(pathname)) return true;
 
   return false;
 }
